@@ -1,0 +1,52 @@
+{
+  "name": "@kb-labs/workflow-runtime",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Runtime adapters and step executors for the KB Labs workflow engine.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "pnpm clean && tsup --config tsup.config.ts",
+    "dev": "tsup --config tsup.config.ts --watch",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint . --ignore-pattern 'dist/**'",
+    "lint:fix": "eslint . --fix --ignore-pattern 'dist/**'"
+  },
+  "dependencies": {
+    "@kb-labs/workflow-artifacts": "workspace:*",
+    "@kb-labs/workflow-constants": "workspace:*",
+    "@kb-labs/workflow-contracts": "workspace:*",
+    "@kb-labs/plugin-manifest": "link:../../../kb-labs-plugin/packages/manifest",
+    "@kb-labs/plugin-runtime": "link:../../../kb-labs-plugin/packages/runtime",
+    "execa": "^9.4.0",
+    "pino": "^9.4.0",
+    "pathe": "^1.1.1"
+  },
+  "devDependencies": {
+    "@kb-labs/devkit": "link:../../../kb-labs-devkit",
+    "@types/node": "^24.3.3",
+    "@typescript-eslint/eslint-plugin": "^8",
+    "@typescript-eslint/parser": "^8",
+    "eslint": "^9",
+    "rimraf": "^6.0.1",
+    "tsup": "^8.5.0",
+    "typescript": "^5.6.3",
+    "vitest": "^3.2.4"
+  }
+}
+
+

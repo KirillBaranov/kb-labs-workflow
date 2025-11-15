@@ -1,6 +1,6 @@
-# KB Labs Product Template (@kb-labs/product-template)
+# KB Labs Workflow (@kb-labs/workflow)
 
-> **Baseline template for products under the @kb-labs namespace.** Fast bootstrap, unified quality rules, simple publishing, and reusable core.
+> **Workflow orchestration engine for KB Labs ecosystem.** Provides workflow execution, job scheduling, and step orchestration capabilities.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-18.18.0+-green.svg)](https://nodejs.org/)
@@ -8,21 +8,17 @@
 
 ## 🎯 Vision
 
-KB Labs Product Template is the baseline template for products under the **@kb-labs** namespace. It provides fast bootstrap, unified quality rules, simple publishing, and reusable core utilities.
+KB Labs Workflow is a workflow orchestration engine that enables declarative workflow definitions, job scheduling, step execution, and distributed coordination through Redis. It provides a unified interface for running multi-step workflows across the KB Labs ecosystem.
 
-The project solves the problem of inconsistent project structure and configurations across multiple KB Labs products by providing a unified template with shared configurations, quality rules, and development workflows. Instead of each new project starting from scratch, developers can use this template for consistent structure and tooling.
+The project solves the problem of orchestrating complex multi-step operations (like CI/CD pipelines, data processing, and plugin workflows) by providing a reliable, scalable workflow engine with support for dependencies, retries, concurrency control, and observability.
 
-This project is part of the **@kb-labs** ecosystem and serves as the foundation for all new KB Labs products.
+This project is part of the **@kb-labs** ecosystem and integrates seamlessly with CLI, REST API, Studio, and all plugin systems.
 
 ## 🚀 Quick Start
 
 ### Installation
 
 ```bash
-# Clone repository
-git clone https://github.com/kirill-baranov/kb-labs-product-template.git
-cd kb-labs-product-template
-
 # Install dependencies
 pnpm install
 ```
@@ -43,136 +39,115 @@ pnpm test
 pnpm lint
 ```
 
-### Creating a New Package
+### Basic Usage
 
-```bash
-# Using the CLI tool (recommended)
-pnpm dlx @kb-labs/create-pkg my-new-pkg
+```typescript
+import { WorkflowEngine, createRedisClient } from '@kb-labs/workflow-engine'
+import type { WorkflowSpec } from '@kb-labs/workflow-contracts'
 
-# Or manually copy and modify
-cp -r packages/package-name packages/<new-package-name>
-# Then update metadata and imports
+const redis = await createRedisClient({
+  url: process.env.KB_REDIS_URL || 'redis://localhost:6379'
+})
+
+const engine = new WorkflowEngine({
+  redis,
+  logger: getLogger('workflow')
+})
+
+const spec: WorkflowSpec = {
+  name: 'my-workflow',
+  version: '0.1.0',
+  jobs: {
+    build: {
+      steps: [
+        { name: 'build', uses: 'plugin:@kb-labs/build/cli' }
+      ]
+    }
+  }
+}
+
+const run = await engine.run(spec, {
+  idempotency: 'build-123'
+})
 ```
 
 ## ✨ Features
 
-- **Fast Bootstrap**: Quick project setup with unified configurations
-- **Unified Quality Rules**: ESLint, Prettier, TypeScript, Vitest, and TSUP configs
-- **Simple Publishing**: Automated releases through Changesets
-- **Reusable Core**: Shared utilities via `@kb-labs/core`
-- **DevKit Integration**: Zero-maintenance configurations via `@kb-labs/devkit`
-- **Multi-Package Support**: pnpm workspaces for monorepo structure
+- **Declarative Workflows**: YAML/JSON workflow definitions with jobs, steps, and dependencies
+- **Job Scheduling**: Intelligent job scheduling with dependency resolution and concurrency control
+- **Step Execution**: Support for in-process and sandboxed plugin command execution
+- **Redis Coordination**: Distributed coordination through Redis for multi-worker setups
+- **Retry Logic**: Configurable retry policies for jobs and steps
+- **Observability**: Event streaming, logging, and metrics integration
+- **Type Safety**: Full TypeScript support with Zod schema validation
 
 ## 📁 Repository Structure
 
 ```
-kb-labs-product-template/
-├── apps/                    # Demo applications
-│   └── demo/                # Example app / playground
-├── packages/                # Core packages
-│   └── package-name/        # Example package (lib/cli/adapter)
-├── fixtures/                # Fixtures for snapshot/integration testing
+kb-labs-workflow/
+├── apps/                    # Example applications and demos
+│   └── demo/                # Example app demonstrating workflow functionality
+├── packages/                # Workflow packages
+│   ├── workflow-artifacts/   # Artifact helpers and file system clients
+│   ├── workflow-constants/   # Shared constants and enums
+│   ├── workflow-contracts/  # Type definitions and Zod schemas
+│   ├── workflow-engine/     # Core orchestration engine
+│   └── workflow-runtime/    # Step execution runtime adapters
 ├── docs/                    # Documentation
-│   └── adr/                 # Architecture Decision Records (ADRs)
+│   └── adr/                 # Architecture Decision Records
 └── scripts/                 # Utility scripts
 ```
-
-### Directory Descriptions
-
-- **`apps/`** - Demo applications demonstrating product usage
-- **`packages/`** - Core packages (lib, CLI, adapters)
-- **`fixtures/`** - Test fixtures for snapshot and integration testing
-- **`docs/`** - Documentation including ADRs and guides
 
 ## 📦 Packages
 
 | Package | Description |
 |---------|-------------|
-| [@kb-labs/package-name](./packages/package-name/) | Example package (replace with your package) |
+| [@kb-labs/workflow-artifacts](./packages/workflow-artifacts/) | Artifact helpers for file system operations and artifact management |
+| [@kb-labs/workflow-constants](./packages/workflow-constants/) | Shared constants, enums, and state definitions |
+| [@kb-labs/workflow-contracts](./packages/workflow-contracts/) | Type definitions, Zod schemas, and workflow specification contracts |
+| [@kb-labs/workflow-engine](./packages/workflow-engine/) | Core orchestration engine with Redis coordination, job scheduling, and state management |
+| [@kb-labs/workflow-runtime](./packages/workflow-runtime/) | Runtime adapters for step execution (local and sandboxed runners) |
 
 ### Package Details
 
-This template includes a single example package that can be customized for your needs:
-- TypeScript library structure
-- Vitest test setup
-- TSUP build configuration
-- Example source code and tests
+**@kb-labs/workflow-engine** is the core orchestration engine:
+- Job scheduling with dependency resolution
+- Redis-based state management and coordination
+- Event bus for workflow events
+- Retry logic and timeout handling
+- Concurrency control and idempotency
 
-## 🛠️ Available Scripts
+**@kb-labs/workflow-runtime** provides step execution:
+- Local runner for in-process execution
+- Sandbox runner for plugin command execution
+- Context management and environment setup
+- Signal handling and cancellation
 
-| Script | Description |
-|--------|-------------|
-| `pnpm dev` | Start development mode for all packages |
-| `pnpm build` | Build all packages |
-| `pnpm build:clean` | Clean and build all packages |
-| `pnpm test` | Run all tests |
-| `pnpm test:watch` | Run tests in watch mode |
-| `pnpm lint` | Lint all code |
-| `pnpm lint:fix` | Fix linting issues |
-| `pnpm type-check` | TypeScript type checking |
-| `pnpm check` | Run lint, type-check, and tests |
-| `pnpm ci` | Full CI pipeline (clean, build, check) |
-| `pnpm clean` | Clean build artifacts |
-| `pnpm clean:all` | Clean all node_modules and build artifacts |
+**@kb-labs/workflow-contracts** defines the workflow specification:
+- Zod schemas for validation
+- TypeScript types for all workflow entities
+- Example workflow definitions
 
-### DevKit Commands
+## 🔗 Dependencies
 
-| Script | Description |
-|--------|-------------|
-| `pnpm devkit:sync` | Sync DevKit configurations to workspace |
-| `pnpm devkit:check` | Check if DevKit sync is needed |
-| `pnpm devkit:force` | Force DevKit sync (overwrite existing) |
-| `pnpm devkit:help` | Show DevKit sync help |
+This repository depends on:
 
-## 🔧 DevKit Integration
+- **@kb-labs/core-sys** - System utilities and logging (from `kb-labs-core`)
+- **@kb-labs/cli-core** - CLI core utilities (from `kb-labs-cli`)
+- **@kb-labs/plugin-manifest** - Plugin manifest definitions (from `kb-labs-plugin`)
+- **@kb-labs/plugin-runtime** - Plugin runtime for sandboxed execution (from `kb-labs-plugin`)
 
-This template uses `@kb-labs/devkit` for shared tooling and configurations. DevKit provides:
+## 📚 Documentation
 
-- **Unified Configurations**: ESLint, Prettier, TypeScript, Vitest, and TSUP configs
-- **Automatic Sync**: Keeps workspace configs in sync with latest DevKit versions
-- **Zero Maintenance**: No need to manually update config files
-
-### DevKit Commands Usage
-
-- **`pnpm devkit:sync`** - Syncs DevKit configurations to your workspace (runs automatically on `pnpm install`)
-- **`pnpm devkit:check`** - Checks if your workspace configs are up-to-date with DevKit
-- **`pnpm devkit:force`** - Forces sync even if local files exist (overwrites local changes)
-- **`pnpm devkit:help`** - Shows detailed help and available options
-
-For more details, see [ADR-0005: Use DevKit for Shared Tooling](docs/adr/0005-use-devkit-for-shared-tooling.md).
-
-## 📋 Development Policies
-
-- **Code Style**: ESLint + Prettier, TypeScript strict mode
-- **Testing**: Vitest with fixtures for integration testing
-- **Versioning**: SemVer with automated releases through Changesets
-- **Architecture**: Document decisions in ADRs (see `docs/adr/`)
-- **Tooling**: Shared configurations via `@kb-labs/devkit`
+- [Workflow Engine Guide](../../docs/workflow-engine.md) - Complete guide to using workflows across CLI, REST API, and Studio
+- [Architecture Decisions](./docs/adr/) - ADRs for this project
+- [Contributing Guide](./CONTRIBUTING.md) - How to contribute
 
 ## 🔧 Requirements
 
 - **Node.js**: >= 18.18.0
 - **pnpm**: >= 9.0.0
-
-## 📚 Documentation
-
-- [Documentation Standard](./docs/DOCUMENTATION.md) - Full documentation guidelines
-- [Contributing Guide](./CONTRIBUTING.md) - How to contribute
-- [Architecture Decisions](./docs/adr/) - ADRs for this project
-
-## 🔗 Related Packages
-
-### Dependencies
-
-- [@kb-labs/devkit](https://github.com/KirillBaranov/kb-labs-devkit) - DevKit presets and configurations
-
-### Used By
-
-- All KB Labs projects as a starting template
-
-### Ecosystem
-
-- [KB Labs](https://github.com/KirillBaranov/kb-labs) - Main ecosystem repository
+- **Redis**: Required for distributed coordination (standalone, cluster, or sentinel)
 
 ## 🤝 Contributing
 
@@ -181,7 +156,3 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines and contribu
 ## 📄 License
 
 MIT © KB Labs
-
----
-
-**See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines and contribution process.**

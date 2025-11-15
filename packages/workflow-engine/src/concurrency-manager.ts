@@ -1,0 +1,78 @@
+import { CONCURRENCY_TTL_ENV } from '@kb-labs/workflow-constants'
+import type { ConcurrencyGroup } from '@kb-labs/workflow-contracts'
+import type { RedisClientFactoryResult } from './redis'
+import type { EngineLogger } from './types'
+
+const DEFAULT_TTL_MS = 1000 * 60 * 30 // 30 minutes
+
+function resolveTtlMs(explicit?: number): number {
+  if (typeof explicit === 'number' && explicit > 0) {
+    return explicit
+  }
+  const envValue = process.env[CONCURRENCY_TTL_ENV]
+  const parsed = envValue ? Number(envValue) : undefined
+  if (parsed && Number.isFinite(parsed) && parsed > 0) {
+    return parsed
+  }
+  return DEFAULT_TTL_MS
+}
+
+export interface AcquireOptions {
+  ttlMs?: number
+}
+
+export class ConcurrencyManager {
+  private readonly client
+  private readonly keys
+  private readonly ttlMs: number
+
+  constructor(
+    private readonly redis: RedisClientFactoryResult,
+    private readonly logger: EngineLogger,
+    options: AcquireOptions = {},
+  ) {
+    this.client = redis.client
+    this.keys = redis.keys
+    this.ttlMs = resolveTtlMs(options.ttlMs)
+  }
+
+  async acquire(
+    group: ConcurrencyGroup,
+    runId: string,
+    options: AcquireOptions = {},
+  ): Promise<boolean> {
+    const ttl = resolveTtlMs(options.ttlMs ?? this.ttlMs)
+    const key = this.keys.concurrency(group)
+    const result = await this.client.set(
+      key,
+      runId,
+      'PX',
+      ttl,
+      'NX',
+    )
+
+    const acquired = result === 'OK'
+    this.logger.debug('Concurrency acquire attempt', {
+      group,
+      runId,
+      acquired,
+    })
+    return acquired
+  }
+
+  async release(group: ConcurrencyGroup, runId: string): Promise<void> {
+    const key = this.keys.concurrency(group)
+    const current = await this.client.get(key)
+    if (current === runId) {
+      await this.client.del(key)
+      this.logger.debug('Concurrency lock released', { group, runId })
+    }
+  }
+
+  async getActiveRun(group: ConcurrencyGroup): Promise<string | null> {
+    const key = this.keys.concurrency(group)
+    return (await this.client.get(key)) ?? null
+  }
+}
+
+
