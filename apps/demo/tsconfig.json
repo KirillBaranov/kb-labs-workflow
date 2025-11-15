@@ -1,0 +1,10 @@
+{
+  "extends": "@kb-labs/devkit/tsconfig/node.json",
+  "include": [
+    "src",
+    "*.config.ts"
+  ],
+  "compilerOptions": {
+    "noEmit": true
+  }
+}
