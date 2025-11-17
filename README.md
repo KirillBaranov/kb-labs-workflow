@@ -141,6 +141,11 @@ This repository depends on:
 
 - [Workflow Engine Guide](../../docs/workflow-engine.md) - Complete guide to using workflows across CLI, REST API, and Studio
 - [Architecture Decisions](./docs/adr/) - ADRs for this project
+  - [ADR-0009: Approval Steps](./docs/adr/0009-approval-steps.md) - Manual approval gates for workflow execution
+  - [ADR-0010: Cross-Run Artifact Merge](./docs/adr/0010-cross-run-artifact-merge.md) - Merging artifacts from multiple runs
+  - [ADR-0011: Local Replay](./docs/adr/0011-local-replay.md) - Replaying workflows from snapshots
+  - [ADR-0012: Remote Marketplace](./docs/adr/0012-remote-marketplace.md) - Discovering workflows from Git repositories
+  - [ADR-0013: Budget Control](./docs/adr/0013-budget-control.md) - Cost tracking and budget limits
 - [Contributing Guide](./CONTRIBUTING.md) - How to contribute
 
 ## 🔧 Requirements
