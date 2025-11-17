@@ -33,6 +33,7 @@ export interface CreateRunInput {
   idempotencyKey?: IdempotencyKey
   concurrencyGroup?: ConcurrencyGroup
   metadata?: Record<string, unknown>
+  env?: Record<string, string>
 }
 
 export interface RunCoordinatorDeps {
