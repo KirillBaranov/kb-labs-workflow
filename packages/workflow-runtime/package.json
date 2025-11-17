@@ -27,14 +27,18 @@
     "lint:fix": "eslint . --fix --ignore-pattern 'dist/**'"
   },
   "dependencies": {
+    "@kb-labs/cli-core": "link:../../../kb-labs-cli/packages/core",
     "@kb-labs/workflow-artifacts": "workspace:*",
     "@kb-labs/workflow-constants": "workspace:*",
     "@kb-labs/workflow-contracts": "workspace:*",
     "@kb-labs/plugin-manifest": "link:../../../kb-labs-plugin/packages/manifest",
     "@kb-labs/plugin-runtime": "link:../../../kb-labs-plugin/packages/runtime",
     "execa": "^9.4.0",
+    "fast-glob": "^3.3.2",
     "pino": "^9.4.0",
-    "pathe": "^1.1.1"
+    "pathe": "^1.1.1",
+    "yaml": "^2.4.0",
+    "zod": "^4.1.5"
   },
   "devDependencies": {
     "@kb-labs/devkit": "link:../../../kb-labs-devkit",
