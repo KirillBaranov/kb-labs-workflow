@@ -17,6 +17,7 @@ import {
   WorkflowJobHandler,
   type WorkflowJobHandlerOptions,
 } from './job-handler'
+import { loadWorkflowConfig } from '@kb-labs/workflow-runtime'
 import { RedisEventBridge } from './events/redis-event-bridge'
 import {
   createPluginCommandResolver,
@@ -43,6 +44,8 @@ export interface CreateWorkflowWorkerOptions
   commandResolver?: PluginCommandResolver
   commandResolverConfig?: PluginCommandResolverConfig
   jobHandlerOptions?: WorkflowJobHandlerOptions
+  engine?: import('./engine').WorkflowEngine
+  workspaceRoot?: string
 }
 
 export interface WorkflowWorkerMetrics {
@@ -497,6 +500,17 @@ export async function createWorkflowWorker(
     resolverOwned = true
   }
 
+  // Load workflow config for budget settings
+  let budgetConfig: import('@kb-labs/workflow-runtime').BudgetConfig | undefined
+  try {
+    const workflowConfig = await loadWorkflowConfig(
+      options.workspaceRoot ?? process.cwd(),
+    )
+    budgetConfig = workflowConfig.budget
+  } catch {
+    // Config not available, continue without budget
+  }
+
   const jobHandler =
     options.jobHandler ??
     new WorkflowJobHandler({
@@ -512,6 +526,12 @@ export async function createWorkflowWorker(
             keys: redis.keys,
             logger,
           }),
+        workflowRegistry: options.engine?.workflowRegistry,
+        engine: options.engine,
+        maxWorkflowDepth: options.engine?.maxWorkflowDepth,
+        redisClient: redis.client,
+        stateStore,
+        budgetConfig,
       },
     })
 
