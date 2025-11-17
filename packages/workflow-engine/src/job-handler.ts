@@ -9,12 +9,25 @@ import {
   type PluginCommandResolution,
 } from '@kb-labs/workflow-runtime'
 import { createFileSystemArtifactClient, type ArtifactClient } from '@kb-labs/workflow-artifacts'
-import type { StepRun, StepSpec, JobRun, WorkflowRun } from '@kb-labs/workflow-contracts'
+import type {
+  StepRun,
+  StepSpec,
+  JobRun,
+  WorkflowRun,
+  ExpressionContext,
+} from '@kb-labs/workflow-contracts'
+import {
+  evaluateExpression,
+  interpolateString,
+  parseWorkflowUses,
+} from '@kb-labs/workflow-contracts'
 import { EVENT_NAMES, type StepState } from '@kb-labs/workflow-constants'
+import type { WorkflowRegistry } from '@kb-labs/workflow-runtime'
 import type { EngineLogger } from './types'
 import type { PluginCommandResolver } from './plugin-command-resolver'
 import type { EventBusBridge } from './event-bus'
 import type { JobHandler, JobHandlerResult, JobExecutionContext } from './job-runner'
+import type { WorkflowEngine } from './engine'
 import {
   createDefaultSecretProvider,
   type SecretProvider,
@@ -36,12 +49,28 @@ import {
   OperationTracker,
 } from '@kb-labs/plugin-runtime'
 import type { RedisEventBridge } from './events/redis-event-bridge'
+import { WorkflowLogStreamer } from './log-streamer'
+import type { RedisClient } from './redis'
+import { ApprovalStepHandler } from './approval-step-handler'
+import { ArtifactMerger } from './artifact-merger'
+import { BudgetTracker } from './budget-tracker'
+import type { StateStore } from './state-store'
+import type { BudgetConfig } from '@kb-labs/workflow-runtime'
 
 export interface WorkflowJobHandlerOptions {
   artifactsRoot?: string
   defaultWorkspace?: string
   secretProvider?: SecretProvider
   eventsBridge?: RedisEventBridge
+  redisClient?: RedisClient
+  workflowRegistry?: WorkflowRegistry
+  engine?: WorkflowEngine
+  maxWorkflowDepth?: number
+  workflowSpec?: import('@kb-labs/workflow-contracts').WorkflowSpec
+  stateStore?: StateStore
+  restoredStepOutputs?: Record<string, Record<string, unknown>>
+  restoredEnv?: Record<string, string>
+  budgetConfig?: BudgetConfig
 }
 
 interface StepLogPayload {
@@ -68,6 +97,35 @@ export class WorkflowJobHandler implements JobHandler {
   private readonly sandboxRunner: SandboxRunner
   private readonly secretProvider: SecretProvider
   private readonly redisEvents?: RedisEventBridge
+  private readonly logStreamer?: WorkflowLogStreamer
+  private readonly workflowRegistry?: WorkflowRegistry
+  private readonly engine?: WorkflowEngine
+  private readonly maxDepth: number
+  private readonly stepOutputs = new Map<string, Record<string, unknown>>()
+  private readonly workflowSpec?: import('@kb-labs/workflow-contracts').WorkflowSpec
+  private readonly approvalHandler?: ApprovalStepHandler
+  private readonly budgetTracker?: BudgetTracker
+
+  /**
+   * Get current step outputs map (for snapshot creation)
+   */
+  getStepOutputs(): Record<string, Record<string, unknown>> {
+    const result: Record<string, Record<string, unknown>> = {}
+    for (const [stepId, outputs] of this.stepOutputs.entries()) {
+      result[stepId] = outputs
+    }
+    return result
+  }
+
+  /**
+   * Restore step outputs from snapshot (for replay)
+   */
+  restoreStepOutputs(outputs: Record<string, Record<string, unknown>>): void {
+    this.stepOutputs.clear()
+    for (const [stepId, stepOutputs] of Object.entries(outputs)) {
+      this.stepOutputs.set(stepId, stepOutputs)
+    }
+  }
 
   constructor(
     deps: {
@@ -81,6 +139,10 @@ export class WorkflowJobHandler implements JobHandler {
     this.events = deps.events
     this.resolver = deps.resolver
     this.options = deps.options ?? {}
+    this.workflowRegistry = this.options.workflowRegistry
+    this.engine = this.options.engine
+    this.maxDepth = this.options.maxWorkflowDepth ?? 2
+    this.workflowSpec = this.options.workflowSpec
     this.localRunner = new LocalRunner()
     this.sandboxRunner = new SandboxRunner({
       resolveCommand: async (commandRef, request) => {
@@ -98,6 +160,187 @@ export class WorkflowJobHandler implements JobHandler {
     this.secretProvider =
       this.options.secretProvider ?? createDefaultSecretProvider()
     this.redisEvents = this.options.eventsBridge
+    if (this.redisEvents && this.options.redisClient) {
+      this.logStreamer = new WorkflowLogStreamer(
+        this.redisEvents,
+        this.options.redisClient,
+        this.logger,
+      )
+    }
+    if (this.options.redisClient) {
+      this.approvalHandler = new ApprovalStepHandler({
+        redisClient: this.options.redisClient,
+        logger: this.logger,
+      })
+    }
+
+    // Restore step outputs if provided (for replay)
+    if (this.options.restoredStepOutputs) {
+      this.restoreStepOutputs(this.options.restoredStepOutputs)
+    }
+
+    // Initialize budget tracker if configured
+    if (this.options.budgetConfig?.enabled && this.options.redisClient) {
+      this.budgetTracker = new BudgetTracker(
+        this.options.budgetConfig,
+        this.logger,
+      )
+    }
+  }
+
+  private buildExpressionContext(
+    run: WorkflowRun,
+    job: JobRun,
+    currentStepIndex: number,
+  ): ExpressionContext {
+    // Steps до текущего индекса
+    const stepsContext: Record<string, { outputs: Record<string, unknown> }> =
+      {}
+    for (const step of job.steps.slice(0, currentStepIndex)) {
+      if (step.spec.id) {
+        stepsContext[step.spec.id] = {
+          outputs: this.stepOutputs.get(step.spec.id) ?? {},
+        }
+      }
+    }
+
+    return {
+      env: mergeEnv(run.env, job.env),
+      trigger: {
+        type: run.trigger.type,
+        actor: run.trigger.actor,
+        payload: run.trigger.payload,
+      },
+      steps: stepsContext,
+    }
+  }
+
+  private async shouldExecuteStep(
+    step: StepRun,
+    context: ExpressionContext,
+  ): Promise<{ execute: boolean; reason?: string }> {
+    const ifExpr = step.spec.if
+    if (!ifExpr) {
+      return { execute: true }
+    }
+
+    try {
+      const result = evaluateExpression(ifExpr, context)
+      if (result) {
+        return { execute: true }
+      }
+      return { execute: false, reason: `condition not met: ${ifExpr}` }
+    } catch (error) {
+      // Expression evaluation failed
+      const message =
+        error instanceof Error ? error.message : String(error)
+      throw new Error(`Invalid if expression "${ifExpr}": ${message}`)
+    }
+  }
+
+  private interpolateWith(
+    withParams: Record<string, unknown> | undefined,
+    context: ExpressionContext,
+  ): Record<string, unknown> {
+    if (!withParams) {
+      return {}
+    }
+
+    const result: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(withParams)) {
+      if (typeof value === 'string') {
+        result[key] = interpolateString(value, context)
+      } else {
+        result[key] = value
+      }
+    }
+    return result
+  }
+
+  private async executeHooks(
+    context: JobExecutionContext,
+    hooks: StepSpec[],
+    phase: string,
+  ): Promise<void> {
+    for (const hookSpec of hooks) {
+      // Guard: hooks не могут иметь вложенные hooks
+      if ('hooks' in hookSpec && hookSpec.hooks) {
+        this.logger.warn('Hooks cannot contain nested hooks, ignoring', {
+          phase,
+          stepName: hookSpec.name,
+        })
+        continue
+      }
+
+      // Execute hook как обычный step (но не сохраняем в job.steps)
+      this.logger.debug(`Executing ${phase} hook: ${hookSpec.name}`)
+
+      // Build expression context for hook
+      const exprContext = this.buildExpressionContext(
+        context.run,
+        context.job,
+        -1, // hooks don't have step index
+      )
+
+      // Check conditional execution
+      if (hookSpec.if) {
+        const should = await this.shouldExecuteStep(
+          { spec: hookSpec } as StepRun,
+          exprContext,
+        )
+        if (!should.execute) {
+          this.logger.debug(`Hook "${hookSpec.name}" skipped: ${should.reason}`)
+          continue
+        }
+      }
+
+      // Interpolate with parameters
+      const interpolatedWith = this.interpolateWith(hookSpec.with, exprContext)
+      const hookSpecWithInterpolated = {
+        ...hookSpec,
+        with: interpolatedWith,
+      }
+
+      // Create a temporary step run for hook execution
+      const hookStepRun: StepRun = {
+        id: `hook-${phase}-${hookSpec.name}-${Date.now()}`,
+        runId: context.run.id,
+        jobId: context.job.id,
+        name: hookSpec.name,
+        index: -1,
+        status: 'running',
+        queuedAt: new Date().toISOString(),
+        startedAt: new Date().toISOString(),
+        spec: hookSpecWithInterpolated,
+        attempt: 1,
+      }
+
+      try {
+        // Execute hook step
+        const outcome = await this.executeStep(context, {
+          run: context.run,
+          job: context.job,
+          step: hookStepRun,
+          artifacts: this.createArtifactClient(context),
+        })
+
+        if (outcome.status === 'failed') {
+          this.logger.warn(`Hook "${hookSpec.name}" failed`, {
+            phase,
+            error: outcome.result.status === 'success' ? undefined : outcome.result.error,
+          })
+          // Hooks failures don't fail the job, but we log them
+        } else {
+          this.logger.debug(`Hook "${hookSpec.name}" completed successfully`, { phase })
+        }
+      } catch (error) {
+        this.logger.warn(`Hook "${hookSpec.name}" threw an error`, {
+          phase,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        // Hooks errors don't fail the job
+      }
+    }
   }
 
   async execute(context: JobExecutionContext): Promise<JobHandlerResult> {
@@ -107,7 +350,74 @@ export class WorkflowJobHandler implements JobHandler {
     let currentJob: JobRun = context.job
     let currentRun: WorkflowRun = context.run
 
+    // Merge artifacts from other runs if configured
+    const jobSpecForMerge = this.workflowSpec?.jobs?.[currentJob.jobName]
+    const mergeConfig = (jobSpecForMerge?.artifacts as any)?.merge
+    if (mergeConfig && this.options.stateStore) {
+      try {
+        const merger = new ArtifactMerger({
+          stateStore: this.options.stateStore,
+          logger: this.logger,
+          artifactsRoot: this.options.artifactsRoot ?? DEFAULT_ARTIFACTS_ROOT,
+        })
+        await merger.mergeArtifacts(
+          mergeConfig,
+          artifacts,
+          context.run.id,
+        )
+      } catch (error) {
+        this.logger.warn('Failed to merge artifacts', {
+          runId: context.run.id,
+          jobId: context.job.id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        // Continue execution even if merge fails
+      }
+    }
+
     await this.ensureConsumedArtifacts(context, artifacts)
+
+    // 1. Execute pre hooks
+    const jobSpec = this.workflowSpec?.jobs?.[currentJob.jobName]
+    if (jobSpec?.hooks?.pre) {
+      await this.executeHooks(context, jobSpec.hooks.pre, 'pre')
+    }
+
+    // 2. Execute main steps
+    let mainResult: JobHandlerResult
+    try {
+      mainResult = await this.executeMainSteps(context, artifacts)
+    } catch (error) {
+      // Execute onFailure hooks
+      if (jobSpec?.hooks?.onFailure) {
+        await this.executeHooks(context, jobSpec.hooks.onFailure, 'onFailure')
+      }
+      throw error
+    }
+
+    // 3. Execute success/failure hooks
+    if (mainResult.status === 'success' && jobSpec?.hooks?.onSuccess) {
+      await this.executeHooks(context, jobSpec.hooks.onSuccess, 'onSuccess')
+    } else if (mainResult.status === 'failed' && jobSpec?.hooks?.onFailure) {
+      await this.executeHooks(context, jobSpec.hooks.onFailure, 'onFailure')
+    }
+
+    // 4. Execute post hooks (always)
+    if (jobSpec?.hooks?.post) {
+      await this.executeHooks(context, jobSpec.hooks.post, 'post')
+    }
+
+    return mainResult
+  }
+
+  private async executeMainSteps(
+    context: JobExecutionContext,
+    artifacts: ArtifactClient,
+  ): Promise<JobHandlerResult> {
+    const errors: Array<{ stepId: string; error: JobHandlerResult['error'] }> = []
+
+    let currentJob: JobRun = context.job
+    let currentRun: WorkflowRun = context.run
 
     const orderedSteps = [...currentJob.steps].sort((a, b) => a.index - b.index)
 
@@ -117,6 +427,28 @@ export class WorkflowJobHandler implements JobHandler {
       }
 
       await context.heartbeat()
+
+      // Check conditional execution
+      const exprContext = this.buildExpressionContext(
+        currentRun,
+        currentJob,
+        step.index,
+      )
+      const should = await this.shouldExecuteStep(step, exprContext)
+
+      if (!should.execute) {
+        // Skip step
+        await context.state.updateStep(step.id, (draft) => {
+          draft.status = 'skipped'
+          draft.skipReason = should.reason
+          return draft
+        })
+        this.emitLog(context, step.id, {
+          level: 'info',
+          message: `Step "${step.name}" skipped: ${should.reason}`,
+        })
+        continue
+      }
 
       const updateToRunning = await context.state.updateStep(
         step.id,
@@ -147,10 +479,20 @@ export class WorkflowJobHandler implements JobHandler {
         meta: { attempt: updateToRunning.attempt },
       })
 
+      // Interpolate with parameters
+      const interpolatedWith = this.interpolateWith(
+        updateToRunning.spec.with,
+        exprContext,
+      )
+      const stepSpecWithInterpolated = {
+        ...updateToRunning.spec,
+        with: interpolatedWith,
+      }
+
       const outcome = await this.executeStep(context, {
         run: currentRun,
         job: currentJob,
-        step: updateToRunning,
+        step: { ...updateToRunning, spec: stepSpecWithInterpolated },
         artifacts,
       })
 
@@ -158,6 +500,7 @@ export class WorkflowJobHandler implements JobHandler {
 
       const finishedAt = new Date().toISOString()
 
+      let updatedStep: StepRun | undefined
       await context.state.updateStep(step.id, (draft) => {
         draft.status = outcome.status
         draft.finishedAt = finishedAt
@@ -165,14 +508,48 @@ export class WorkflowJobHandler implements JobHandler {
         if (outcome.result.status === 'success') {
           draft.outputs = outcome.result.outputs
           draft.error = undefined
+          // Store outputs in stepOutputs map for context
+          if (updateToRunning.spec.id && outcome.result.outputs) {
+            this.stepOutputs.set(updateToRunning.spec.id, outcome.result.outputs)
+          }
         } else {
           draft.outputs = undefined
           if (outcome.result.error) {
             draft.error = outcome.result.error
           }
         }
+        updatedStep = draft
         return draft
       })
+
+      // Record cost if budget tracking is enabled
+      if (
+        this.budgetTracker &&
+        this.options.redisClient &&
+        updatedStep &&
+        updatedStep.durationMs
+      ) {
+        try {
+          const calculation = await this.budgetTracker.calculateCost(
+            updatedStep,
+            currentJob,
+            currentRun,
+          )
+          if (calculation) {
+            await this.budgetTracker.recordCost(
+              this.options.redisClient,
+              calculation,
+            )
+          }
+        } catch (error) {
+          // Don't fail the step if budget tracking fails
+          this.logger.warn('Failed to record budget cost', {
+            runId: currentRun.id,
+            stepId: updatedStep.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
 
       const refreshed = await context.state.reload()
       if (refreshed) {
@@ -247,6 +624,13 @@ export class WorkflowJobHandler implements JobHandler {
 
     await this.captureProducedArtifacts(context, artifacts)
 
+    if (errors.length > 0) {
+      return {
+        status: 'failed',
+        error: errors[errors.length - 1]?.error,
+      }
+    }
+
     return {
       status: 'success',
     }
@@ -272,6 +656,140 @@ export class WorkflowJobHandler implements JobHandler {
             code: 'STEP_SPEC_NOT_FOUND',
           },
         },
+      }
+    }
+
+    // Publish step start
+    if (this.logStreamer) {
+      await this.logStreamer
+        .publishStepStart(
+          runtime.run.id,
+          runtime.job.id,
+          runtime.step.id,
+          runtime.step.name,
+        )
+        .catch((error) => {
+          this.logger.warn('Failed to publish step start', {
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+    }
+
+    // Check if workflow step
+    if (spec.uses?.startsWith('workflow:')) {
+      const outcome = await this.executeWorkflowStep(context, runtime)
+      // Publish step end
+      if (this.logStreamer) {
+        await this.logStreamer
+          .publishStepEnd(
+            runtime.run.id,
+            runtime.job.id,
+            runtime.step.id,
+            outcome.status,
+          )
+          .catch((error) => {
+            this.logger.warn('Failed to publish step end', {
+              error: error instanceof Error ? error.message : String(error),
+            })
+          })
+      }
+      return outcome
+    }
+
+    // Check if approval step
+    if (spec.uses === 'builtin:approval') {
+      if (!this.approvalHandler) {
+        return {
+          status: 'failed',
+          result: {
+            status: 'failed',
+            error: {
+              message: 'Approval handler not available (Redis client required)',
+              code: 'APPROVAL_HANDLER_UNAVAILABLE',
+            },
+          },
+        }
+      }
+
+      const executionRequest = {
+        spec,
+        context: {
+          runId: runtime.run.id,
+          jobId: runtime.job.id,
+          stepId: runtime.step.id,
+          attempt: runtime.step.attempt,
+          env: mergeEnv(runtime.run.env, runtime.job.env, spec.env),
+          secrets: await this.resolveSecrets(runtime.run, runtime.job, spec),
+          artifacts: runtime.artifacts,
+          logger: this.createStepLogger(context, runtime),
+        },
+        workspace: resolveWorkspace(spec, this.options.defaultWorkspace ?? DEFAULT_WORKSPACE),
+        signal: context.signal,
+      }
+
+      try {
+        const approvalRequest = await this.approvalHandler.createApprovalRequest(executionRequest)
+        this.logger.info('Waiting for approval', {
+          runId: runtime.run.id,
+          stepId: runtime.step.id,
+          message: approvalRequest.message,
+        })
+
+        const result = await this.approvalHandler.waitForApproval(
+          executionRequest,
+          approvalRequest,
+        )
+
+        const outcome: StepOutcome = {
+          status: result.status,
+          result,
+        }
+
+        // Publish step end
+        if (this.logStreamer) {
+          await this.logStreamer
+            .publishStepEnd(
+              runtime.run.id,
+              runtime.job.id,
+              runtime.step.id,
+              outcome.status,
+            )
+            .catch((error) => {
+              this.logger.warn('Failed to publish step end', {
+                error: error instanceof Error ? error.message : String(error),
+              })
+            })
+        }
+
+        return outcome
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Approval step failed'
+        const outcome: StepOutcome = {
+          status: 'failed',
+          result: {
+            status: 'failed',
+            error: {
+              message,
+              code: 'APPROVAL_STEP_ERROR',
+            },
+          },
+        }
+        // Publish step end
+        if (this.logStreamer) {
+          await this.logStreamer
+            .publishStepEnd(
+              runtime.run.id,
+              runtime.job.id,
+              runtime.step.id,
+              outcome.status,
+            )
+            .catch((error) => {
+              this.logger.warn('Failed to publish step end', {
+                error: error instanceof Error ? error.message : String(error),
+              })
+            })
+        }
+        return outcome
       }
     }
 
@@ -334,7 +852,7 @@ export class WorkflowJobHandler implements JobHandler {
         }
 
         const message = error instanceof Error ? error.message : 'Step execution failed'
-        return {
+        const outcome: StepOutcome = {
           status: 'failed',
           result: {
             status: 'failed',
@@ -344,20 +862,303 @@ export class WorkflowJobHandler implements JobHandler {
             },
           },
         }
+        // Publish step end
+        if (this.logStreamer) {
+          await this.logStreamer
+            .publishStepEnd(
+              runtime.run.id,
+              runtime.job.id,
+              runtime.step.id,
+              outcome.status,
+            )
+            .catch((error) => {
+              this.logger.warn('Failed to publish step end', {
+                error: error instanceof Error ? error.message : String(error),
+              })
+            })
+        }
+        return outcome
       }
 
       const abortReason = getAbortReason(stepSignal)
       if (abortReason instanceof StepTimeoutError) {
-        return buildStepTimeoutOutcome(abortReason)
+        const outcome = buildStepTimeoutOutcome(abortReason)
+        // Publish step end
+        if (this.logStreamer) {
+          await this.logStreamer
+            .publishStepEnd(
+              runtime.run.id,
+              runtime.job.id,
+              runtime.step.id,
+              outcome.status,
+            )
+            .catch((error) => {
+              this.logger.warn('Failed to publish step end', {
+                error: error instanceof Error ? error.message : String(error),
+              })
+            })
+        }
+        return outcome
       }
 
-      return {
+      const outcome: StepOutcome = {
         status: result.status,
         result,
       }
+
+      // Publish step end
+      if (this.logStreamer) {
+        await this.logStreamer
+          .publishStepEnd(
+            runtime.run.id,
+            runtime.job.id,
+            runtime.step.id,
+            outcome.status,
+          )
+          .catch((error) => {
+            this.logger.warn('Failed to publish step end', {
+              error: error instanceof Error ? error.message : String(error),
+            })
+          })
+      }
+
+      return outcome
     } finally {
       timeoutHandle?.cancel()
       composite.dispose()
+    }
+  }
+
+  private async executeWorkflowStep(
+    context: JobExecutionContext,
+    runtime: {
+      run: WorkflowRun
+      job: JobRun
+      step: StepRun
+    },
+  ): Promise<StepOutcome> {
+    if (!this.workflowRegistry || !this.engine) {
+      return {
+        status: 'failed',
+        result: {
+          status: 'failed',
+          error: {
+            message:
+              'Workflow registry not configured for nested workflows',
+            code: 'WORKFLOW_REGISTRY_NOT_CONFIGURED',
+          },
+        },
+      }
+    }
+
+    const spec = runtime.step.spec
+    const workflowInvocation = parseWorkflowUses(spec.uses ?? '')
+    if (!workflowInvocation) {
+      return {
+        status: 'failed',
+        result: {
+          status: 'failed',
+          error: {
+            message: 'Invalid workflow uses',
+            code: 'INVALID_WORKFLOW_USES',
+          },
+        },
+      }
+    }
+
+    const workflowId = workflowInvocation.workflowId
+
+    // Resolve workflow
+    const resolved = await this.workflowRegistry.resolve(workflowId)
+    if (!resolved) {
+      return {
+        status: 'failed',
+        result: {
+          status: 'failed',
+          error: {
+            message: `Workflow '${workflowId}' not found in registry`,
+            code: 'WORKFLOW_NOT_FOUND',
+            details: { workflowId },
+          },
+        },
+      }
+    }
+
+    // Depth guard
+    const currentDepth = runtime.run.metadata?.workflowDepth ?? 0
+    if (currentDepth + 1 > this.maxDepth) {
+      return {
+        status: 'failed',
+        result: {
+          status: 'failed',
+          error: {
+            message: `Maximum workflow depth ${this.maxDepth} exceeded`,
+            code: 'WORKFLOW_DEPTH_EXCEEDED',
+            details: { maxDepth: this.maxDepth, currentDepth },
+          },
+        },
+      }
+    }
+
+    // Check mode
+    const withParams = spec.with ?? {}
+    const mode = (withParams.mode as string) ?? workflowInvocation.mode ?? 'wait'
+    if (mode === 'fire-and-forget') {
+      return {
+        status: 'failed',
+        result: {
+          status: 'failed',
+          error: {
+            message: 'fire-and-forget mode not supported in MVP',
+            code: 'UNSUPPORTED_MODE',
+            details: { mode },
+          },
+        },
+      }
+    }
+
+    // Create child run
+    const inheritEnv =
+      (withParams.inheritEnv as boolean) ??
+      workflowInvocation.inheritEnv ??
+      true
+
+    const childEnv = inheritEnv
+      ? mergeEnv(runtime.run.env, runtime.job.env)
+      : {}
+
+    // Merge inputs into env
+    const inputs = (withParams.inputs as Record<string, unknown>) ??
+      workflowInvocation.inputs ??
+      {}
+    for (const [key, value] of Object.entries(inputs)) {
+      childEnv[key] = String(value)
+    }
+
+    let childRun: WorkflowRun
+    try {
+      childRun = await this.engine.runFromFile(resolved.filePath, {
+        trigger: {
+          type: 'workflow',
+          parentRunId: runtime.run.id,
+          parentJobId: runtime.job.id,
+          parentStepId: runtime.step.id,
+          invokedByWorkflowId: runtime.run.metadata?.workflowId,
+        },
+        env: childEnv,
+        metadata: {
+          workflowId: resolved.id,
+          workflowDepth: currentDepth + 1,
+          parentRunId: runtime.run.id,
+          parentJobId: runtime.job.id,
+          parentStepId: runtime.step.id,
+        },
+        // НЕ передаём idempotencyKey и concurrencyGroup
+      })
+    } catch (error) {
+      return {
+        status: 'failed',
+        result: {
+          status: 'failed',
+          error: {
+            message:
+              error instanceof Error
+                ? error.message
+                : 'Failed to create child workflow run',
+            code: 'WORKFLOW_SPAWN_ERROR',
+            details: { workflowId },
+          },
+        },
+      }
+    }
+
+    // Wait for completion (polling)
+    const pollInterval = 1000 // 1s
+    let childStatus: WorkflowRun | null
+
+    while (true) {
+      // Check parent abort
+      if (context.signal.aborted) {
+        // Cancel child
+        await this.engine.cancelRun(childRun.id)
+        return {
+          status: 'cancelled',
+          result: {
+            status: 'cancelled',
+            error: {
+              message: 'Parent workflow cancelled, child workflow aborted',
+              code: 'PARENT_CANCELLED',
+              details: { childRunId: childRun.id },
+            },
+          },
+        }
+      }
+
+      childStatus = await this.engine.getRun(childRun.id)
+      if (!childStatus) {
+        return {
+          status: 'failed',
+          result: {
+            status: 'failed',
+            error: {
+              message: 'Child workflow run not found',
+              code: 'CHILD_RUN_NOT_FOUND',
+              details: { childRunId: childRun.id },
+            },
+          },
+        }
+      }
+
+      // Terminal states
+      if (['success', 'failed', 'cancelled'].includes(childStatus.status)) {
+        break
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollInterval))
+    }
+
+    // Return result
+    if (childStatus.status === 'success') {
+      return {
+        status: 'success',
+        result: {
+          status: 'success',
+          outputs: {
+            childRunId: childRun.id,
+            childResult: childStatus.result,
+          },
+        },
+      }
+    }
+
+    if (childStatus.status === 'cancelled') {
+      return {
+        status: 'cancelled',
+        result: {
+          status: 'cancelled',
+          error: {
+            message: 'Child workflow was cancelled',
+            code: 'CHILD_WORKFLOW_CANCELLED',
+            details: { childRunId: childRun.id },
+          },
+        },
+      }
+    }
+
+    // failed
+    return {
+      status: 'failed',
+      result: {
+        status: 'failed',
+        error: {
+          message: 'Child workflow failed',
+          code: 'CHILD_WORKFLOW_FAILED',
+          details: {
+            childRunId: childRun.id,
+            childError: childStatus.result?.error,
+          },
+        },
+      },
     }
   }
 
@@ -510,6 +1311,25 @@ export class WorkflowJobHandler implements JobHandler {
           error: error instanceof Error ? error.message : String(error),
         })
       })
+
+    // Stream logs via Redis pub/sub
+    if (this.logStreamer) {
+      this.logStreamer
+        .publishLog({
+          runId: context.run.id,
+          jobId: context.job.id,
+          stepId,
+          timestamp: new Date().toISOString(),
+          level: payload.level,
+          message: payload.message,
+          meta: payload.meta,
+        })
+        .catch((error) => {
+          this.logger.warn('Failed to stream workflow log', {
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+    }
   }
 
   private createPluginExecutionContext(
