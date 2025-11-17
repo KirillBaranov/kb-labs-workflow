@@ -26,6 +26,9 @@ import {
 import { EventBusBridge } from './event-bus'
 import { WorkflowLoader } from './workflow-loader'
 import type { CreateRunInput, EngineLogger, RunContext } from './types'
+import type { WorkflowRegistry } from '@kb-labs/workflow-runtime'
+import { createWorkflowRegistry } from '@kb-labs/workflow-runtime'
+import { RunSnapshotStorage, type RunSnapshot } from './run-snapshot'
 
 function createDefaultLogger(): EngineLogger {
   const instance = pino({
@@ -59,10 +62,15 @@ export interface WorkflowEngineOptions {
   concurrency?: AcquireOptions
   runCoordinator?: RunCoordinatorOptions
   logger?: EngineLogger
+  workflowRegistry?: WorkflowRegistry
+  maxWorkflowDepth?: number
+  workspaceRoot?: string
 }
 
 export class WorkflowEngine {
   readonly loader: WorkflowLoader
+  readonly workflowRegistry?: WorkflowRegistry
+  readonly maxWorkflowDepth: number
 
   private readonly logger: EngineLogger
   private readonly redis: RedisClientFactoryResult
@@ -71,6 +79,8 @@ export class WorkflowEngine {
   private readonly runCoordinator: RunCoordinator
   private readonly scheduler: Scheduler
   private readonly events: EventBusBridge
+  private readonly snapshotStorage: RunSnapshotStorage
+  private registryInitialized = false
 
   constructor(private readonly options: WorkflowEngineOptions = {}) {
     this.logger = options.logger ?? createDefaultLogger()
@@ -91,6 +101,24 @@ export class WorkflowEngine {
     this.scheduler = new Scheduler(this.redis, this.logger, options.scheduler)
     this.events = new EventBusBridge(this.redis, this.logger)
     this.loader = new WorkflowLoader(this.logger)
+    this.workflowRegistry = options.workflowRegistry
+    this.maxWorkflowDepth = options.maxWorkflowDepth ?? 2
+    this.snapshotStorage = new RunSnapshotStorage(this.redis.client, this.logger)
+  }
+
+  async initializeRegistry(workspaceRoot?: string): Promise<void> {
+    if (this.registryInitialized || this.workflowRegistry) {
+      return
+    }
+
+    if (workspaceRoot || this.options.workspaceRoot) {
+      const root = workspaceRoot ?? this.options.workspaceRoot ?? process.cwd()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(this as any).workflowRegistry = await createWorkflowRegistry({
+        workspaceRoot: root,
+      })
+      this.registryInitialized = true
+    }
   }
 
   async dispose(): Promise<void> {
@@ -145,6 +173,20 @@ export class WorkflowEngine {
 
   async getRun(runId: string): Promise<WorkflowRun | null> {
     return this.stateStore.getRun(runId)
+  }
+
+  async cancelRun(runId: string): Promise<void> {
+    await this.stateStore.updateRun(runId, (draft) => {
+      draft.status = 'cancelled'
+      draft.finishedAt = new Date().toISOString()
+      return draft
+    })
+
+    await this.events.publish({
+      type: EVENT_NAMES.run.cancelled,
+      runId,
+      payload: { reason: 'cancelled by parent workflow' },
+    })
   }
 
   async updateRun(
@@ -213,6 +255,132 @@ export class WorkflowEngine {
         version: run.version,
       },
     })
+  }
+
+  /**
+   * Create a snapshot of the current run state
+   */
+  async createSnapshot(
+    runId: string,
+    stepOutputs: Record<string, Record<string, unknown>>,
+    env: Record<string, string>,
+  ): Promise<RunSnapshot | null> {
+    const run = await this.getRun(runId)
+    if (!run) {
+      this.logger.warn('Cannot create snapshot: run not found', { runId })
+      return null
+    }
+
+    return this.snapshotStorage.createSnapshot(run, stepOutputs, env)
+  }
+
+  /**
+   * Get a snapshot for a run
+   */
+  async getSnapshot(runId: string): Promise<RunSnapshot | null> {
+    return this.snapshotStorage.getSnapshot(runId)
+  }
+
+  /**
+   * Replay a run from a snapshot, optionally starting from a specific step
+   */
+  async replayRun(
+    runId: string,
+    options: {
+      fromStepId?: string
+      stepOutputs?: Record<string, Record<string, unknown>>
+      env?: Record<string, string>
+    } = {},
+  ): Promise<WorkflowRun | null> {
+    // Load snapshot
+    const snapshot = await this.snapshotStorage.getSnapshot(runId)
+    if (!snapshot) {
+      this.logger.warn('Cannot replay: snapshot not found', { runId })
+      return null
+    }
+
+    // Restore run state
+    const restoredRun = snapshot.run
+
+    // Restore env if provided
+    if (options.env) {
+      restoredRun.env = { ...snapshot.env, ...options.env }
+    } else {
+      restoredRun.env = snapshot.env
+    }
+
+    // If fromStepId is specified, mark all steps before it as completed
+    if (options.fromStepId) {
+      for (const job of restoredRun.jobs) {
+        let foundStep = false
+        for (const step of job.steps) {
+          if (step.id === options.fromStepId) {
+            // Found the step to start from
+            foundStep = true
+            // Reset this step and all following steps
+            if (step.status !== 'queued') {
+              step.status = 'queued'
+              step.startedAt = undefined
+              step.finishedAt = undefined
+            }
+            continue
+          }
+          if (!foundStep) {
+            // Mark previous steps as completed
+            if (step.status === 'running' || step.status === 'queued') {
+              step.status = 'success'
+              step.finishedAt = step.finishedAt ?? new Date().toISOString()
+            }
+          } else {
+            // Reset steps after the target step
+            step.status = 'queued'
+            step.startedAt = undefined
+            step.finishedAt = undefined
+          }
+        }
+      }
+    } else {
+      // Reset all steps to queued
+      for (const job of restoredRun.jobs) {
+        for (const step of job.steps) {
+          step.status = 'queued'
+          step.startedAt = undefined
+          step.finishedAt = undefined
+        }
+      }
+    }
+
+    // Update run status
+    restoredRun.status = 'running'
+    restoredRun.startedAt = restoredRun.startedAt ?? new Date().toISOString()
+    restoredRun.finishedAt = undefined
+
+    // Save restored run
+    await this.stateStore.saveRun(restoredRun)
+
+    // Schedule the run
+    await this.scheduler.scheduleRun(restoredRun)
+
+    this.logger.info('Run replayed from snapshot', {
+      runId,
+      fromStepId: options.fromStepId,
+    })
+
+    return restoredRun
+  }
+
+  /**
+   * Delete a snapshot
+   */
+  async deleteSnapshot(runId: string): Promise<void> {
+    await this.snapshotStorage.deleteSnapshot(runId)
+  }
+
+  /**
+   * List all available snapshots
+   */
+  async listSnapshots(limit = 100): Promise<string[]> {
+    return this.snapshotStorage.listSnapshots(limit)
   }
 }
 
