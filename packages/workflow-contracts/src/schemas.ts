@@ -37,9 +37,12 @@ export const StepSpecSchema = z.object({
   uses: z
     .union([
       z.literal('builtin:shell'),
-      z.string().regex(/^[a-zA-Z0-9@/_:+#.-]+$/),
+      z.literal('builtin:approval'),
+      z.string().regex(/^(plugin:|workflow:)?[a-zA-Z0-9@/_:+#.-]+$/),
     ])
     .optional(),
+  id: z.string().min(1).max(64).regex(/^[a-zA-Z0-9_-]+$/).optional(),
+  if: z.string().optional(),
   with: z.record(z.string(), z.unknown()).optional(),
   env: z.record(z.string(), z.string()).optional(),
   secrets: z.array(z.string().min(1)).optional(),
@@ -52,10 +55,32 @@ export const JobConcurrencySchema = z.object({
   cancelInProgress: z.boolean().optional(),
 })
 
+export const ArtifactMergeStrategySchema = z.enum(['append', 'overwrite', 'json-merge'])
+
+export const ArtifactMergeSourceSchema = z.object({
+  runId: z.string().min(1),
+  jobId: z.string().min(1).optional(),
+})
+
+export const ArtifactMergeConfigSchema = z.object({
+  strategy: ArtifactMergeStrategySchema,
+  from: z.array(ArtifactMergeSourceSchema).min(1),
+})
+
 export const JobArtifactsSchema = z
   .object({
     produce: z.array(z.string().min(1)).optional(),
     consume: z.array(z.string().min(1)).optional(),
+    merge: ArtifactMergeConfigSchema.optional(),
+  })
+  .optional()
+
+export const JobHooksSchema = z
+  .object({
+    pre: z.array(StepSpecSchema).optional(),
+    post: z.array(StepSpecSchema).optional(),
+    onFailure: z.array(StepSpecSchema).optional(),
+    onSuccess: z.array(StepSpecSchema).optional(),
   })
   .optional()
 
@@ -64,6 +89,8 @@ export const JobSpecSchema = z.object({
   concurrency: JobConcurrencySchema.optional(),
   steps: z.array(StepSpecSchema).min(1),
   artifacts: JobArtifactsSchema,
+  hooks: JobHooksSchema,
+  if: z.string().optional(),
   timeoutMs: TimeoutSchema.optional(),
   retries: RetryPolicySchema.optional(),
   env: z.record(z.string(), z.string()).optional(),
@@ -144,6 +171,7 @@ export const StepRunSchema = z.object({
   continueOnError: z.boolean().optional(),
   error: StepRunErrorSchema.optional(),
   outputs: z.record(z.string(), z.unknown()).optional(),
+  skipReason: z.string().optional(),
   spec: StepSpecSchema,
 })
 
@@ -173,14 +201,23 @@ export const JobRunSchema = z.object({
 })
 
 export const RunTriggerSchema = z.object({
-  type: z.enum(['manual', 'webhook', 'push', 'schedule']),
+  type: z.enum(['manual', 'webhook', 'push', 'schedule', 'workflow']),
   actor: z.string().optional(),
   payload: z.record(z.string(), z.unknown()).optional(),
+  parentRunId: z.string().optional(),
+  parentJobId: z.string().optional(),
+  parentStepId: z.string().optional(),
+  invokedByWorkflowId: z.string().optional(),
 })
 
 export const RunMetadataSchema = z.object({
   idempotencyKey: IdempotencyKeySchema.optional(),
   concurrencyGroup: ConcurrencyGroupSchema.optional(),
+  workflowId: z.string().optional(),
+  workflowDepth: z.number().int().nonnegative().optional(),
+  parentRunId: z.string().optional(),
+  parentJobId: z.string().optional(),
+  parentStepId: z.string().optional(),
 })
 
 export const ResultErrorSchema = z.object({
