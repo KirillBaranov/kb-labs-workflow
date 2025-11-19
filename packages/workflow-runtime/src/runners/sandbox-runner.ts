@@ -38,6 +38,13 @@ export class SandboxRunner implements Runner {
 
   async execute(request: StepExecutionRequest): Promise<StepExecutionResult> {
     const { spec, context } = request
+    
+    // Debug: log entry
+    context.logger.info('SandboxRunner.execute called', {
+      uses: spec.uses,
+      stepId: context.stepId,
+    })
+    
     if (!spec.uses || typeof spec.uses !== 'string') {
       context.logger.error('Sandbox runner requires step.uses to be defined', {
         stepId: context.stepId,
@@ -135,10 +142,8 @@ export class SandboxRunner implements Runner {
         ? context.artifacts.basePath()
         : undefined
 
-    const {
-      pluginRoot: overridePluginRoot,
-      ...restOverrides
-    } = resolution.contextOverrides ?? {}
+    const contextOverrides = resolution.contextOverrides ?? {}
+    const overridePluginRoot = contextOverrides.pluginRoot as string | undefined
 
     const baseContext: ExecutionContext = {
       requestId: `${context.runId}:${context.jobId}:${context.stepId}`,
@@ -160,10 +165,41 @@ export class SandboxRunner implements Runner {
       jsonMode: false,
     }
 
+    // Explicitly apply adapterContext and adapterMeta from contextOverrides
     const executionContext: ExecutionContext = {
       ...baseContext,
-      ...restOverrides,
-      signal: request.signal ?? restOverrides.signal,
+      ...contextOverrides,
+      // Ensure adapterContext and adapterMeta are explicitly set
+      adapterContext: contextOverrides.adapterContext as any,
+      adapterMeta: contextOverrides.adapterMeta as any,
+      signal: request.signal ?? (contextOverrides.signal as AbortSignal | undefined),
+    }
+
+    // Debug: log adapterContext if present
+    if (executionContext.adapterContext && executionContext.adapterContext.type === 'cli') {
+      const cliCtx = executionContext.adapterContext
+      context.logger.info('SandboxRunner: adapterContext with flags', {
+        hasFlags: !!cliCtx.flags,
+        flagsKeys: cliCtx.flags ? Object.keys(cliCtx.flags) : [],
+        flags: cliCtx.flags,
+        hasAdapterMeta: !!executionContext.adapterMeta,
+      })
+    } else {
+      context.logger.warn('SandboxRunner: adapterContext missing or not CLI', {
+        hasAdapterContext: !!executionContext.adapterContext,
+        adapterContextType: executionContext.adapterContext?.type,
+        hasAdapterMeta: !!executionContext.adapterMeta,
+        adapterMetaType: executionContext.adapterMeta?.type,
+        contextOverridesKeys: resolution.contextOverrides ? Object.keys(resolution.contextOverrides) : [],
+      })
+    }
+
+    // Final check: ensure adapterContext is in executionContext before calling executePlugin
+    if (!executionContext.adapterContext && resolution.contextOverrides?.adapterContext) {
+      // Force apply adapterContext if it wasn't applied via spread
+      executionContext.adapterContext = resolution.contextOverrides.adapterContext as any
+      executionContext.adapterMeta = resolution.contextOverrides.adapterMeta as any
+      context.logger.warn('SandboxRunner: Force-applied adapterContext from contextOverrides')
     }
 
     try {

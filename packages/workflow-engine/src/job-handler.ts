@@ -148,10 +148,16 @@ export class WorkflowJobHandler implements JobHandler {
       resolveCommand: async (commandRef, request) => {
         const resolution = await this.resolver.resolve(commandRef)
         if (isPluginStep(request.spec)) {
-          const pluginContext = this.createPluginExecutionContext(request, resolution)
+          const { pluginContext, adapterContext } = this.createPluginExecutionContext(request, resolution)
           resolution.contextOverrides = {
             ...(resolution.contextOverrides ?? {}),
             pluginContext,
+            adapterContext,
+            adapterMeta: {
+              type: 'cli',
+              signature: 'command',
+              version: '1.0.0',
+            },
           }
         }
         return resolution
@@ -1326,9 +1332,9 @@ export class WorkflowJobHandler implements JobHandler {
         })
         .catch((error) => {
           this.logger.warn('Failed to stream workflow log', {
-            error: error instanceof Error ? error.message : String(error),
-          })
+          error: error instanceof Error ? error.message : String(error),
         })
+      })
     }
   }
 
@@ -1363,7 +1369,53 @@ export class WorkflowJobHandler implements JobHandler {
       getTrackedOperations: () => operationTracker.toArray(),
     })
 
-    return pluginContext;
+    // Convert spec.with to flags and argv for CLI handlers
+    const input = request.spec.with ?? {}
+    const flags: Record<string, any> = {}
+    const argv: string[] = []
+
+    // Convert input object to flags
+    // All keys from input become flags (matching CLI command flag structure)
+    for (const [key, value] of Object.entries(input)) {
+      // Convert value to appropriate type
+      if (value === true || value === 'true' || value === '1') {
+        flags[key] = true
+      } else if (value === false || value === 'false' || value === '0') {
+        flags[key] = false
+      } else if (value != null && value !== '') {
+        // Keep original value type (string, number, etc.)
+        flags[key] = value
+      }
+      // Note: argv is not used by CLI handlers, they use flags directly
+    }
+
+    // Create adapterContext for CLI handlers
+    const adapterContext = {
+      type: 'cli' as const,
+      presenter: {
+        write: (text: string) => presenter.message(text),
+        error: (text: string) => presenter.message(text, { level: 'error' }),
+        info: (text: string) => presenter.message(text, { level: 'info' }),
+        json: (data: any) => presenter.json(data),
+      },
+      cwd: request.workspace ?? this.options.defaultWorkspace ?? DEFAULT_WORKSPACE,
+      flags,
+      argv,
+      requestId: request.context.runId,
+      workdir: request.workspace ?? this.options.defaultWorkspace ?? DEFAULT_WORKSPACE,
+      outdir: request.workspace ?? this.options.defaultWorkspace ?? DEFAULT_WORKSPACE,
+      pluginId: resolution.manifest.id,
+      pluginVersion: resolution.manifest.version,
+      traceId: request.context.trace?.traceId ?? request.context.runId,
+      spanId: request.context.trace?.spanId,
+      parentSpanId: request.context.trace?.parentSpanId,
+      debug: false,
+    }
+
+    return {
+      pluginContext,
+      adapterContext,
+    }
   }
 
   private forwardPresenterEvent(

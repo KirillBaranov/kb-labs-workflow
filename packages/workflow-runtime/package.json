@@ -33,6 +33,7 @@
     "@kb-labs/workflow-contracts": "workspace:*",
     "@kb-labs/plugin-manifest": "link:../../../kb-labs-plugin/packages/manifest",
     "@kb-labs/plugin-runtime": "link:../../../kb-labs-plugin/packages/runtime",
+    "chokidar": "^4.0.3",
     "execa": "^9.4.0",
     "fast-glob": "^3.3.2",
     "pino": "^9.4.0",
