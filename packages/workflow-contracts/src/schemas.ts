@@ -21,6 +21,18 @@ export const StepStateSchema = z.enum(STEP_STATE_VALUES)
 export const IdempotencyKeySchema = z.string().min(1).max(256)
 export const ConcurrencyGroupSchema = z.string().min(1).max(256)
 
+/**
+ * Tenant ID schema
+ * Optional for backward compatibility with single-tenant deployments
+ */
+export const TenantIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-zA-Z0-9_-]+$/)
+  .describe('Tenant identifier')
+  .optional()
+
 export const RetryModeSchema = z.enum(['exp', 'lin'])
 
 export const RetryPolicySchema = z.object({
@@ -178,6 +190,7 @@ export const StepRunSchema = z.object({
 export const JobRunSchema = z.object({
   id: z.string().min(1),
   runId: z.string().min(1),
+  tenantId: TenantIdSchema, // ← Inherited from run for isolation
   jobName: z.string().min(1),
   status: JobStateSchema,
   runsOn: z.enum(['local', 'sandbox']),
@@ -252,6 +265,7 @@ export const ExecutionResultSchema = z.object({
 
 export const RunSchema = z.object({
   id: z.string().min(1),
+  tenantId: TenantIdSchema, // ← Multi-tenancy support
   name: z.string().min(1),
   version: z.string().min(1),
   status: RunStateSchema,

@@ -29,6 +29,14 @@ import type { CreateRunInput, EngineLogger, RunContext } from './types'
 import type { WorkflowRegistry } from '@kb-labs/workflow-runtime'
 import { createWorkflowRegistry } from '@kb-labs/workflow-runtime'
 import { RunSnapshotStorage, type RunSnapshot } from './run-snapshot'
+import {
+  CronScheduler,
+  type CronSchedulerOptions,
+} from './cron/scheduler.js'
+import {
+  DegradationController,
+  type DegradationControllerOptions
+} from '@kb-labs/plugin-runtime'
 
 function createDefaultLogger(): EngineLogger {
   const instance = pino({
@@ -59,6 +67,8 @@ function createDefaultLogger(): EngineLogger {
 export interface WorkflowEngineOptions {
   redis?: CreateRedisClientOptions
   scheduler?: SchedulerOptions
+  cronScheduler?: CronSchedulerOptions
+  degradation?: DegradationControllerOptions
   concurrency?: AcquireOptions
   runCoordinator?: RunCoordinatorOptions
   logger?: EngineLogger
@@ -71,6 +81,8 @@ export class WorkflowEngine {
   readonly loader: WorkflowLoader
   readonly workflowRegistry?: WorkflowRegistry
   readonly maxWorkflowDepth: number
+  readonly cronScheduler: CronScheduler
+  readonly degradationController: DegradationController
 
   private readonly logger: EngineLogger
   private readonly redis: RedisClientFactoryResult
@@ -99,11 +111,21 @@ export class WorkflowEngine {
       options.runCoordinator,
     )
     this.scheduler = new Scheduler(this.redis, this.logger, options.scheduler)
+    this.cronScheduler = new CronScheduler(this.redis, options.cronScheduler)
+    this.degradationController = new DegradationController(this.redis, options.degradation)
     this.events = new EventBusBridge(this.redis, this.logger)
     this.loader = new WorkflowLoader(this.logger)
     this.workflowRegistry = options.workflowRegistry
     this.maxWorkflowDepth = options.maxWorkflowDepth ?? 2
     this.snapshotStorage = new RunSnapshotStorage(this.redis.client, this.logger)
+
+    // Start CronScheduler ticker
+    this.cronScheduler.start()
+    this.logger.info('CronScheduler started')
+
+    // Start DegradationController
+    this.degradationController.start()
+    this.logger.info('DegradationController started')
   }
 
   async initializeRegistry(workspaceRoot?: string): Promise<void> {
@@ -122,6 +144,14 @@ export class WorkflowEngine {
   }
 
   async dispose(): Promise<void> {
+    // Stop CronScheduler ticker
+    this.cronScheduler.stop()
+    this.logger.info('CronScheduler stopped')
+
+    // Stop DegradationController
+    this.degradationController.stop()
+    this.logger.info('DegradationController stopped')
+
     const client: any = this.redis.client
     if (typeof client.quit === 'function') {
       await client.quit()
