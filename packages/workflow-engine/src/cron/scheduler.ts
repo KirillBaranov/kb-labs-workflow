@@ -4,9 +4,9 @@
  */
 
 import type { RedisClientFactoryResult } from '@kb-labs/workflow-engine';
-import type { ScheduleEntry, TriggeredJob, ParsedSchedule, CronSchedulerOptions } from './types.js';
-import type { LeaderElection } from './leader-election.js';
-import { parseSchedule, getNextRun } from './parser.js';
+import type { ScheduleEntry, TriggeredJob, ParsedSchedule, CronSchedulerOptions } from './types';
+import type { LeaderElection } from './leader-election';
+import { parseSchedule, getNextRun } from './parser';
 
 /**
  * CronScheduler manages recurring scheduled jobs

@@ -3,7 +3,7 @@
  * CronScheduler for recurring scheduled jobs
  */
 
-export * from './types.js';
-export * from './parser.js';
-export * from './scheduler.js';
-export * from './leader-election.js';
+export * from './types';
+export * from './parser';
+export * from './scheduler';
+export * from './leader-election';

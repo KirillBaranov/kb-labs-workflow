@@ -3,7 +3,7 @@
  * Schedule parser for cron expressions and interval strings
  */
 
-import type { ParsedSchedule } from './types.js';
+import type { ParsedSchedule } from './types';
 
 /**
  * Parse interval string like "5m", "1h", "30s" to milliseconds

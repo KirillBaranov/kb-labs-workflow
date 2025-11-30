@@ -27,7 +27,7 @@
     "lint:fix": "eslint . --fix --ignore-pattern 'dist/**'"
   },
   "dependencies": {
-    "pathe": "^1.1.2"
+    "pathe": "^1.1.1"
   },
   "devDependencies": {
     "@kb-labs/devkit": "link:../../../kb-labs-devkit",
@@ -41,6 +41,3 @@
     "vitest": "^3.2.4"
   }
 }
-
-
-
