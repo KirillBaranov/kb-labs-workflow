@@ -32,7 +32,7 @@ import { RunSnapshotStorage, type RunSnapshot } from './run-snapshot'
 import {
   CronScheduler,
   type CronSchedulerOptions,
-} from './cron/scheduler.js'
+} from './cron/scheduler'
 import {
   DegradationController,
   type DegradationControllerOptions
