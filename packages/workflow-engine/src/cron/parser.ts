@@ -10,7 +10,7 @@ import type { ParsedSchedule } from './types';
  */
 export function parseInterval(interval: string): number | null {
   const match = interval.match(/^(\d+)(ms|s|m|h|d)$/);
-  if (!match) {
+  if (!match || !match[1] || !match[2]) {
     return null;
   }
 
@@ -47,7 +47,7 @@ export function validateCron(expression: string): boolean {
   }
 
   // Basic validation for each part
-  const [minute, hour, day, month, weekday] = parts;
+  const [minute, hour, day, month, weekday] = parts as [string, string, string, string, string];
 
   // Minute: 0-59 or * or */n
   if (!isValidCronPart(minute, 0, 59)) return false;
@@ -82,7 +82,10 @@ function isValidCronPart(part: string, min: number, max: number): boolean {
 
   // Range: 1-5
   if (part.includes('-')) {
-    const [start, end] = part.split('-').map(n => parseInt(n, 10));
+    const rangeParts = part.split('-').map(n => parseInt(n, 10));
+    const start = rangeParts[0];
+    const end = rangeParts[1];
+    if (start === undefined || end === undefined) return false;
     return !isNaN(start) && !isNaN(end) && start >= min && end <= max && start <= end;
   }
 
@@ -142,7 +145,11 @@ export function getNextRun(parsed: ParsedSchedule, after: number = Date.now()): 
  */
 function getNextCronRun(expression: string, after: number): number {
   const parts = expression.split(/\s+/);
-  const [minutePart, hourPart, dayPart, monthPart, weekdayPart] = parts;
+  const minutePart = parts[0] ?? '*';
+  const hourPart = parts[1] ?? '*';
+  const dayPart = parts[2] ?? '*';
+  const monthPart = parts[3] ?? '*';
+  const weekdayPart = parts[4] ?? '*';
 
   const date = new Date(after);
 
@@ -204,7 +211,10 @@ function matchesCronPart(value: number, part: string, min: number, max: number):
 
   // Range: 1-5
   if (part.includes('-')) {
-    const [start, end] = part.split('-').map(n => parseInt(n, 10));
+    const rangeParts = part.split('-').map(n => parseInt(n, 10));
+    const start = rangeParts[0];
+    const end = rangeParts[1];
+    if (start === undefined || end === undefined) return false;
     return value >= start && value <= end;
   }
 

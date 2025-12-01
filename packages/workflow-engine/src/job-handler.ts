@@ -56,6 +56,7 @@ import { ArtifactMerger } from './artifact-merger'
 import { BudgetTracker } from './budget-tracker'
 import type { StateStore } from './state-store'
 import type { BudgetConfig } from '@kb-labs/workflow-runtime'
+import { createOutput } from '@kb-labs/core-sys/output'
 
 export interface WorkflowJobHandlerOptions {
   artifactsRoot?: string
@@ -1390,8 +1391,14 @@ export class WorkflowJobHandler implements JobHandler {
     }
 
     // Create adapterContext for CLI handlers
+    const output = createOutput({
+      verbosity: 'normal',
+      mode: 'tty',
+    });
+
     const adapterContext = {
       type: 'cli' as const,
+      output,
       presenter: {
         write: (text: string) => presenter.message(text),
         error: (text: string) => presenter.message(text, { level: 'error' }),

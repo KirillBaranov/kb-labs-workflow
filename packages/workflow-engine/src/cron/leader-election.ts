@@ -1,23 +1,10 @@
 /**
- * @module @kb-labs/plugin-runtime/jobs/cron/leader-election
+ * @module @kb-labs/workflow-engine/cron/leader-election
  * LeaderElection - Redis lease-based leader election for distributed cron scheduler
  */
 
-import type { RedisClientFactoryResult } from '@kb-labs/workflow-engine';
-
-export interface LeaderElectionOptions {
-  leaseTTL?: number;
-  heartbeatInterval?: number;
-  leaderKey?: string;
-}
-
-export interface LeaderElectionMetrics {
-  'cron.leader.active': 0 | 1;
-  'cron.leader.change_count': number;
-  'cron.leader.lease_remaining_ms': number;
-  'cron.leader.flap_count': number;
-  'cron.leader.lease_acquisition_time_ms': number;
-}
+import type { RedisClientFactoryResult } from '../redis';
+import type { LeaderElectionOptions, LeaderElectionMetrics } from './types';
 
 /**
  * LeaderElection manages distributed leader election using Redis lease pattern

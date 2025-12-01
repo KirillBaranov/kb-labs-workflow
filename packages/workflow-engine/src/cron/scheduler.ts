@@ -1,11 +1,14 @@
 /**
- * @module @kb-labs/plugin-runtime/jobs/cron/scheduler
+ * @module @kb-labs/workflow-engine/cron/scheduler
  * CronScheduler - manages recurring scheduled jobs
  */
 
-import type { RedisClientFactoryResult } from '@kb-labs/workflow-engine';
+import type { RedisClientFactoryResult } from '../redis';
 import type { ScheduleEntry, TriggeredJob, ParsedSchedule, CronSchedulerOptions } from './types';
 import type { LeaderElection } from './leader-election';
+
+// Re-export for convenience
+export type { CronSchedulerOptions } from './types';
 import { parseSchedule, getNextRun } from './parser';
 
 /**

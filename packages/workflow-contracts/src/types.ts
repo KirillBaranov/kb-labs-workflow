@@ -68,4 +68,51 @@ export interface ExpressionContext {
   matrix?: Record<string, unknown>
 }
 
+/**
+ * Input for creating a workflow run
+ * Note: This is the contract interface - implementation may have additional internal fields
+ */
+export interface CreateRunInput {
+  spec: WorkflowSpec
+  trigger: RunTrigger
+  idempotencyKey?: IdempotencyKey
+  concurrencyGroup?: ConcurrencyGroup
+  metadata?: Record<string, unknown>
+  env?: Record<string, string>
+}
 
+/**
+ * Filter options for listing workflow runs
+ */
+export interface ListRunsFilter {
+  workflowId?: string
+  status?: WorkflowRun['status']
+  limit?: number
+  offset?: number
+}
+
+/**
+ * Contract interface for WorkflowEngine
+ * This interface breaks the circular dependency between plugin-runtime and workflow-engine
+ */
+export interface IWorkflowEngine {
+  /**
+   * Create and start a new workflow run
+   */
+  createRun(input: CreateRunInput): Promise<WorkflowRun>
+
+  /**
+   * Get a workflow run by ID
+   */
+  getRun(runId: string): Promise<WorkflowRun | null>
+
+  /**
+   * Cancel a running workflow
+   */
+  cancelRun(runId: string): Promise<void>
+
+  /**
+   * List workflow runs with optional filters
+   */
+  listRuns?(filter?: ListRunsFilter): Promise<WorkflowRun[]>
+}
