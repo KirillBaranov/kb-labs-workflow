@@ -40,7 +40,6 @@ import {
 } from './abort-utils'
 import {
   createPluginContext,
-  createNoopAnalyticsEmitter,
   createNoopEventBridge,
   JobRunnerPresenter,
   type JobRunnerPresenterEvent,
@@ -1350,24 +1349,23 @@ export class WorkflowJobHandler implements JobHandler {
       onEvent: (event) => this.forwardPresenterEvent(request, event),
     })
 
-    const analyticsEmitter = createNoopAnalyticsEmitter();
     const operationTracker = new OperationTracker();
 
     const pluginContext = createPluginContext('workflow', {
       requestId: `${request.context.runId}:${request.context.jobId}:${request.context.stepId}`,
       pluginId: resolution.manifest.id,
       pluginVersion: resolution.manifest.version,
-      presenter,
-      analytics: analyticsEmitter,
-      events: createNoopEventBridge(),
-      capabilities: [],
+      ui: presenter,
+      platform: {
+        events: createNoopEventBridge(),
+      },
       metadata: {
         runId: request.context.runId,
         jobId: request.context.jobId,
         stepId: request.context.stepId,
         attempt: request.context.attempt,
+        getTrackedOperations: () => operationTracker.toArray(),
       },
-      getTrackedOperations: () => operationTracker.toArray(),
     })
 
     // Convert spec.with to flags and argv for CLI handlers

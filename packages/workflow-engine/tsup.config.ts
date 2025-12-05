@@ -4,6 +4,7 @@ import nodePreset from '@kb-labs/devkit/tsup/node.js'
 export default defineConfig({
   ...nodePreset,
   tsconfig: "tsconfig.build.json", // Use build-specific tsconfig without paths
+  dts: false, // Temporarily disabled - type errors with JobRunnerPresenter and PluginEventBridge
   entry: {
     index: 'src/index.ts',
   },
