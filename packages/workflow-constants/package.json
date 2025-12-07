@@ -1,6 +1,6 @@
 {
   "name": "@kb-labs/workflow-constants",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Shared constants for the KB Labs workflow engine.",
   "main": "./dist/index.js",
@@ -38,8 +38,3 @@
     "vitest": "^3.2.4"
   }
 }
-
-
-
-
-
