@@ -40,7 +40,6 @@ import {
 } from './abort-utils'
 import {
   createPluginContext,
-  createNoopEventBridge,
   JobRunnerPresenter,
   type JobRunnerPresenterEvent,
   type PluginContext,
@@ -1357,7 +1356,7 @@ export class WorkflowJobHandler implements JobHandler {
       pluginVersion: resolution.manifest.version,
       ui: presenter,
       platform: {
-        events: createNoopEventBridge(),
+        // events field omitted - optional IEventBus not provided for workflow job context
       },
       metadata: {
         runId: request.context.runId,
