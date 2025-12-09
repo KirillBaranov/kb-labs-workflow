@@ -1,51 +1,25 @@
 KB Public License v1.1
+
 Copyright (c) KB Labs. All rights reserved.
 
 This software is open for public use under the terms described below.
 
 ================================================================================
-ПРОСТЫМИ СЛОВАМИ (не юридический текст):
 
-✅ ЧТО МОЖНО:
-- Использовать KB Labs для своих проектов (личных и коммерческих)
-- Устанавливать на своих серверах для своей команды
-- Модифицировать код под себя
-- Создавать плагины и расширения
-- Делать fork и распространять изменения
-
-❌ ЧТО НЕЛЬЗЯ (без нашего разрешения):
-- Запускать KB Labs как облачный сервис для других компаний
-- Создавать конкурирующую платформу на основе KB Labs
-- Удалять упоминания об авторстве
-- Использовать название и логотип KB Labs
-
-💼 НУЖНА КОММЕРЧЕСКАЯ ЛИЦЕНЗИЯ ЕСЛИ:
-- Хотите продавать hosted версию KB Labs
-- Создаете конкурирующий продукт
-- Встраиваете в проприетарную систему для перепродажи
-
-📧 Вопросы: contact@kblabs.dev
-
-================================================================================
-
-1. Permitted Use (Что разрешено)
+1. Permitted Use
 
 You may:
 a) Use the software for personal, educational, research, and commercial projects
 b) Modify, extend, and build plugins, adapters, or integrations
-c) Self-host and run the software on your own infrastructure (on-prem)
+c) Self-host and run the software on your own infrastructure (on-premises)
 d) Redistribute modified versions, provided this license remains intact
 e) Use internally within your organization for your own employees and contractors
 
-PLAIN ENGLISH: Вы можете использовать KB Labs как угодно для ВНУТРЕННИХ нужд
-вашей компании. Модифицируйте, расширяйте, устанавливайте на свои сервера -
-всё это разрешено. Главное - это для ваших сотрудников, не для перепродажи.
-
 ================================================================================
 
-2. Restrictions (Что запрещено)
+2. Restrictions
 
-You may NOT (without written permission from KB Labs):
+You may NOT, without written permission from KB Labs:
 
 a) HOSTED SERVICES - Offer the software or modified versions as a hosted service
    where third-party users or customers access KB Labs functionality through
@@ -59,52 +33,30 @@ c) BRANDING - Remove or replace copyright notices, or use KB Labs name,
 
 d) MISREPRESENTATION - Misrepresent modified versions as official KB Labs software
 
-PLAIN ENGLISH:
-
-❌ HOSTED SERVICE = Если вы запускаете KB Labs на своих серверах, и ДРУГИЕ
-КОМПАНИИ платят вам за доступ к нему - это запрещено без нашего разрешения.
-
-✅ INTERNAL USE = Если вы запускаете KB Labs на своих серверах для СВОЕЙ КОМАНДЫ -
-это разрешено! Даже если ваша команда использует его для работы с клиентами.
-
-Пример:
-✅ Консалтинговая компания устанавливает KB Labs для своих разработчиков,
-   которые используют его при работе с проектами клиентов - ОК!
-❌ Консалтинговая компания продает доступ к KB Labs как сервис клиентам - НЕ ОК!
-
-❌ COMPETING PRODUCT = Нельзя взять KB Labs, переименовать и продавать как
-свою платформу. Но можно использовать отдельные компоненты в продукте с
-другим назначением (см. Section 6).
-
 ================================================================================
 
-3. Source Code Visibility (Открытость кода)
+3. Source Code Visibility
 
 If you distribute modified versions publicly, you must:
-a) Clearly disclose that the version is modified (e.g., "Based on KB Labs")
+a) Clearly disclose that the version is modified
 b) Include this license file unchanged
 c) Document significant changes you made
 
-PLAIN ENGLISH: Если делаете public fork - укажите что это модифицированная
-версия KB Labs, сохраните эту лицензию и опишите что изменили.
-
 ================================================================================
 
-4. No Warranty (Отказ от гарантий)
+4. No Warranty
 
 This software is provided "as is," without warranty of any kind, express or
 implied, including but not limited to warranties of merchantability, fitness
 for a particular purpose, or non-infringement.
 
 KB Labs is not liable for any damages (direct, indirect, incidental, special,
-exemplary, or consequential) arising from the use or inability to use this software.
-
-PLAIN ENGLISH: Мы предоставляем код как есть. Если что-то сломается - мы не
-несем финансовой ответственности. Используете на свой риск (как и 99% open source).
+exemplary, or consequential) arising from the use or inability to use this
+software.
 
 ================================================================================
 
-5. Optional Commercial License (Коммерческая лицензия)
+5. Commercial License
 
 Organizations that wish to:
 - Offer hosted versions of KB Labs (SaaS, PaaS, managed service)
@@ -114,81 +66,29 @@ Organizations that wish to:
 
 Must obtain a commercial license by contacting: contact@kblabs.dev
 
-PLAIN ENGLISH: Если хотите зарабатывать на KB Labs напрямую (продавать доступ,
-делать конкурента, встраивать в свой платный продукт) - свяжитесь с нами для
-обсуждения коммерческой лицензии. Мы адекватные люди, договоримся :)
-
 ================================================================================
 
-6. Definitions (Определения терминов)
+6. Definitions
 
-6.1 "COMPETING PRODUCT" means a product that replicates the CORE VALUE PROPOSITION
-of KB Labs as an INTEGRATED PLATFORM that combines:
+6.1 "COMPETING PRODUCT" means a product that replicates the core value
+proposition of KB Labs as an integrated platform that combines:
 - AI-powered code search and knowledge management (Mind Engine) AND
 - Plugin-based extensibility system (Plugin Runtime) AND
 - Workflow orchestration capabilities
 
-EXAMPLES:
-
-❌ COMPETING (needs commercial license):
-- "DevPlatform Pro" - a fork of KB Labs with rebranded UI sold as SaaS
-- "CodeAI Platform" - uses KB Labs Mind + Plugins + Workflows as foundation
-- White-label KB Labs for resale to enterprises
-
-✅ NOT COMPETING (allowed):
-- "SearchMyCode" - uses only Mind Engine for code search in a different product
-- "PluginRunner" - generic plugin system inspired by KB Labs architecture
-- "MyDevTool" - integrates one KB Labs component with other technologies
-- Internal tool for your company built on KB Labs components
-
-RULE OF THUMB: If someone would say "this is basically KB Labs under a
-different name" - it's competing. If it's a different product that happens
-to use some KB Labs technology - it's fine.
-
-PLAIN ENGLISH:
-
-"Конкурирующий продукт" = если вы берете KB Labs целиком (AI поиск + плагины +
-воркфлоу) и продаете как платформу - это конкурент.
-
-"Не конкурент" = если вы берете только Mind Engine для своего AI-продукта с
-другим назначением - это ОК! Мы хотим защититься от клонов платформы, а не
-запретить использовать наши технологии в других проектах.
-
 6.2 "HOSTED SERVICE" means any scenario where:
-- The software runs on infrastructure you control OR cloud provider you manage
-- AND third-party users or customers access KB Labs functionality (directly or indirectly)
-- AND you charge fees OR offer as free service to acquire customers
+- The software runs on infrastructure you control or a cloud provider you manage
+- AND third-party users or customers access KB Labs functionality
+  (directly or indirectly)
+- AND you charge fees or offer as a free service to acquire customers
 
 EXCEPTION: Internal use within a single organization for its own employees,
 contractors, and subsidiaries is NOT a hosted service, even if those employees
 work on client projects.
 
-EXAMPLES:
-
-❌ HOSTED SERVICE (needs commercial license):
-- "KB Labs Cloud" - you offer KB Labs as SaaS for $50/month per user
-- "Free KB Labs Online" - you run KB Labs to attract users to your platform
-- API Gateway - you expose KB Labs functionality via your paid API
-
-✅ INTERNAL USE (allowed):
-- Your startup installs KB Labs for your 50 developers - OK!
-- Your agency uses KB Labs to audit client codebases - OK!
-- Your enterprise runs KB Labs on-prem for 5,000 employees - OK!
-- You create custom plugins for your team's workflow - OK!
-
-PLAIN ENGLISH:
-
-Если ваша компания использует KB Labs для своих сотрудников - это ОК, даже
-если эти сотрудники работают с клиентами.
-
-Если вы даёте доступ к KB Labs самим клиентам (они логинятся, используют) -
-нужна коммерческая лицензия.
-
-Проще говоря: internal use = ОК, external service = нужна лицензия.
-
 ================================================================================
 
-7. Governing Law and Jurisdiction (Юрисдикция)
+7. Governing Law and Jurisdiction
 
 7.1 This license is governed by the laws of Russian Federation, without
     regard to conflict of law provisions.
@@ -199,13 +99,9 @@ PLAIN ENGLISH:
 7.3 If any provision of this license is found unenforceable, the remaining
     provisions remain in full effect.
 
-PLAIN ENGLISH: Если будет спор - решаем в суде Москвы, Россия по законам РФ.
-Если какая-то часть лицензии окажется недействительной - остальные части всё
-равно работают.
-
 ================================================================================
 
-8. License Termination and Enforcement (Прекращение лицензии)
+8. License Termination and Enforcement
 
 8.1 AUTOMATIC TERMINATION
 This license automatically terminates if you violate any of its terms.
@@ -231,25 +127,9 @@ not limited to:
 Sections 2 (Restrictions), 4 (No Warranty), 7 (Jurisdiction), and 8 (Enforcement)
 survive license termination.
 
-PLAIN ENGLISH:
-
-Если вы нарушили лицензию (например, запустили SaaS без разрешения):
-1. Мы отправляем вам письмо с описанием нарушения
-2. У вас есть 30 дней чтобы исправить (закрыть SaaS, получить лицензию, etc.)
-3. Если исправили - всё ОК, лицензия восстанавливается
-4. Если не исправили - лицензия прекращается навсегда для вас
-
-При серьёзных нарушениях мы можем:
-- Через суд запретить вам использовать KB Labs
-- Требовать компенсацию убытков
-- Требовать вернуть прибыль, которую вы заработали на нарушении
-
-Звучит страшно, но это стандартная защита. Главное - если случайно нарушили,
-у вас есть 30 дней чтобы всё исправить без последствий.
-
 ================================================================================
 
-9. Contributions (Вклад в проект)
+9. Contributions
 
 By submitting code, documentation, or other materials ("Contribution") to the
 KB Labs project (via pull request, issue, email, or any other means), you agree:
@@ -271,33 +151,9 @@ d) You agree your Contribution will be distributed under this KB Public License
 e) To confirm acceptance of these terms, include in your pull request:
    "I accept the KB Labs Contributor License Agreement (CLA) as described in LICENSE section 9"
 
-PLAIN ENGLISH:
-
-Если вы делаете pull request в KB Labs:
-
-1. Вы даёте нам право использовать ваш код:
-   - В open source версии (под этой лицензией)
-   - В коммерческих продуктах KB Labs (если мы их сделаем)
-   - Без отчисления вам роялти (но с указанием авторства!)
-
-2. Вы подтверждаете что:
-   - Это ваш код (или у вас есть права на него)
-   - Вы не копировали чужой код без разрешения
-   - Нет патентных проблем
-
-3. Чтобы подтвердить - напишите в PR:
-   "I accept the KB Labs CLA as described in LICENSE section 9"
-
-Зачем это нужно? Без этого мы не можем уверенно использовать ваш код, и кто-то
-из contributors может потом требовать удалить их код или платить им роялти.
-Это стандартная практика (см. Google, Microsoft, Apache Foundation - у всех есть CLA).
-
-Не волнуйтесь - ваше авторство сохраняется в git history! Просто мы получаем
-права использовать код без будущих юридических проблем.
-
 ================================================================================
 
-10. Updates to This License (Обновления лицензии)
+10. Updates to This License
 
 10.1 KB Labs may publish updated versions of this license with different terms.
 
@@ -305,61 +161,26 @@ PLAIN ENGLISH:
 
 10.3 Unless explicitly stated otherwise, you may choose to use the software
      under the terms of the version under which you originally received it,
-     OR any later version published by KB Labs.
+     or any later version published by KB Labs.
 
 10.4 New releases of KB Labs software may specify a minimum license version required.
 
-PLAIN ENGLISH:
-
-Мы можем обновлять эту лицензию в будущем (например, v1.2, v2.0).
-
-Если вы скачали KB Labs под лицензией v1.1 - вы можете продолжать использовать
-под v1.1, даже если мы выпустим v2.0 с другими условиями.
-
-Но если мы выпустим новую ВЕРСИЮ KB LABS (например, KB Labs 3.0) и укажем что
-для неё нужна минимум лицензия v2.0 - тогда для использования новой версии
-нужно принять новую лицензию.
-
-Старые версии KB Labs всегда доступны под старой лицензией.
-
 ================================================================================
 
-11. Contact and Questions (Контакты и вопросы)
+11. Contact
 
 For questions about this license, commercial licensing, or permitted use cases:
 
 Email: contact@kblabs.dev
-Website: [your website]
 
 We are open to reasonable discussions about commercial licensing and will work
 with you to find terms that work for both parties.
 
-PLAIN ENGLISH: Если не уверены можно ли что-то делать - напишите нам! Мы
-адекватные люди и готовы обсуждать. Лучше спросить заранее, чем нарушить
-лицензию случайно.
-
-================================================================================
-
-SUMMARY (Краткая выжимка):
-
-✅ FREE TO USE FOR:
-- Internal company use (any size, any number of employees)
-- Plugins and extensions
-- On-premise deployments
-- Modified versions for internal use
-- Open source projects
-
-💰 REQUIRES COMMERCIAL LICENSE FOR:
-- Offering KB Labs as a hosted service (SaaS/PaaS)
-- Creating competing platform products
-- White-label or resale products
-- Removing this license from your distribution
-
-📧 Questions? contact@kblabs.dev
-
 ================================================================================
 
 By using this software, you accept the terms above.
+
+For a user-friendly guide to this license, see LICENSE-GUIDE.md
 
 KB Public License v1.1
 Copyright (c) KB Labs. All rights reserved.
