@@ -39,7 +39,8 @@ import {
   signalReason,
 } from './abort-utils'
 import {
-  createPluginContext,
+  executePlugin,
+  createPluginContextWithPlatform,
   JobRunnerPresenter,
   type JobRunnerPresenterEvent,
   type PluginContext,
@@ -55,6 +56,17 @@ import { BudgetTracker } from './budget-tracker'
 import type { StateStore } from './state-store'
 import type { BudgetConfig } from '@kb-labs/workflow-runtime'
 import { createOutput } from '@kb-labs/core-sys/output'
+
+/**
+ * Parse handler reference from string format
+ */
+function parseHandlerRef(handlerRef: string): { file: string; export: string } {
+  const [file, exportName] = handlerRef.split('#');
+  if (!exportName || !file) {
+    throw new Error(`Handler reference must include export name: ${handlerRef}`);
+  }
+  return { file, export: exportName };
+}
 
 export interface WorkflowJobHandlerOptions {
   artifactsRoot?: string
@@ -146,19 +158,7 @@ export class WorkflowJobHandler implements JobHandler {
     this.sandboxRunner = new SandboxRunner({
       resolveCommand: async (commandRef, request) => {
         const resolution = await this.resolver.resolve(commandRef)
-        if (isPluginStep(request.spec)) {
-          const { pluginContext, adapterContext } = this.createPluginExecutionContext(request, resolution)
-          resolution.contextOverrides = {
-            ...(resolution.contextOverrides ?? {}),
-            pluginContext,
-            adapterContext,
-            adapterMeta: {
-              type: 'cli',
-              signature: 'command',
-              version: '1.0.0',
-            },
-          }
-        }
+        // V2: contextOverrides no longer needed - we'll call executePlugin directly
         return resolution
       },
     })
@@ -833,7 +833,8 @@ export class WorkflowJobHandler implements JobHandler {
       let result: StepExecutionResult
       try {
         if (isPluginStep(spec)) {
-          result = await this.sandboxRunner.execute(executionRequest)
+          // V2: Call executePlugin directly instead of SandboxRunner
+          result = await this.executePluginStep(executionRequest)
         } else {
           result = await this.localRunner.execute(executionRequest)
         }
@@ -1337,6 +1338,69 @@ export class WorkflowJobHandler implements JobHandler {
     }
   }
 
+  /**
+   * Execute plugin step using new executePlugin architecture (V2)
+   */
+  private async executePluginStep(request: StepExecutionRequest): Promise<StepExecutionResult> {
+    // Resolve plugin command
+    const commandRef = (request.spec as any).uses;
+    const resolution = await this.resolver.resolve(commandRef);
+
+    // Create plugin context
+    const { pluginContext, flags, argv } = this.createPluginExecutionContext(request, resolution);
+
+    // resolution.handler is already a HandlerRef object
+    const handlerRef = resolution.handler;
+
+    // Execute plugin
+    const distRoot = path.join(resolution.pluginRoot, 'dist');
+
+    try {
+      const result = await executePlugin({
+        context: pluginContext,
+        handlerRef,
+        argv,
+        flags,
+        manifest: resolution.manifest,
+        permissions: resolution.manifest.permissions || {},
+        grantedCapabilities: resolution.manifest.capabilities || [],
+        pluginRoot: distRoot,
+        registry: undefined, // Workflow doesn't use plugin registry
+      });
+
+      // Convert ExecutePluginResult to StepExecutionResult
+      // Match the old transformPluginResult structure to maintain compatibility
+      if (result.ok) {
+        return {
+          status: 'success',
+          outputs: {
+            data: result.data,       // Wrapped in outputs.data like old code
+            metrics: result.metrics, // Include metrics
+            logs: result.logs,       // Include logs
+            profile: result.profile, // Include profile
+            stepId: request.context.stepId, // Include stepId
+          },
+        };
+      } else {
+        return {
+          status: 'failed',
+          error: {
+            code: result.error?.code || 'PLUGIN_ERROR',
+            message: result.error?.message || 'Plugin execution failed',
+          },
+        };
+      }
+    } catch (error: any) {
+      return {
+        status: 'failed',
+        error: {
+          code: 'PLUGIN_EXECUTION_ERROR',
+          message: error?.message || 'Plugin execution crashed',
+        },
+      };
+    }
+  }
+
   private createPluginExecutionContext(
     request: StepExecutionRequest,
     resolution: PluginCommandResolution,
@@ -1350,19 +1414,27 @@ export class WorkflowJobHandler implements JobHandler {
 
     const operationTracker = new OperationTracker();
 
-    const pluginContext = createPluginContext('workflow', {
+    const defaultWorkspace = request.workspace ?? this.options.defaultWorkspace ?? DEFAULT_WORKSPACE;
+
+    // V2: Create PluginContext with platform integration
+    const pluginContext = createPluginContextWithPlatform({
+      host: 'workflow',
       requestId: `${request.context.runId}:${request.context.jobId}:${request.context.stepId}`,
       pluginId: resolution.manifest.id,
       pluginVersion: resolution.manifest.version,
+      cwd: defaultWorkspace,  // V2: promoted to top-level
+      outdir: defaultWorkspace,  // V2: promoted to top-level
+      config: {},
       ui: presenter,
-      platform: {
-        // events field omitted - optional IEventBus not provided for workflow job context
-      },
       metadata: {
+        // V2: Only workflow-specific metadata remains
         runId: request.context.runId,
         jobId: request.context.jobId,
         stepId: request.context.stepId,
         attempt: request.context.attempt,
+        traceId: request.context.trace?.traceId ?? request.context.runId,
+        spanId: request.context.trace?.spanId,
+        parentSpanId: request.context.trace?.parentSpanId,
         getTrackedOperations: () => operationTracker.toArray(),
       },
     })
@@ -1387,38 +1459,10 @@ export class WorkflowJobHandler implements JobHandler {
       // Note: argv is not used by CLI handlers, they use flags directly
     }
 
-    // Create adapterContext for CLI handlers
-    const output = createOutput({
-      verbosity: 'normal',
-      mode: 'tty',
-    });
-
-    const adapterContext = {
-      type: 'cli' as const,
-      output,
-      presenter: {
-        write: (text: string) => presenter.message(text),
-        error: (text: string) => presenter.message(text, { level: 'error' }),
-        info: (text: string) => presenter.message(text, { level: 'info' }),
-        json: (data: any) => presenter.json(data),
-      },
-      cwd: request.workspace ?? this.options.defaultWorkspace ?? DEFAULT_WORKSPACE,
-      flags,
-      argv,
-      requestId: request.context.runId,
-      workdir: request.workspace ?? this.options.defaultWorkspace ?? DEFAULT_WORKSPACE,
-      outdir: request.workspace ?? this.options.defaultWorkspace ?? DEFAULT_WORKSPACE,
-      pluginId: resolution.manifest.id,
-      pluginVersion: resolution.manifest.version,
-      traceId: request.context.trace?.traceId ?? request.context.runId,
-      spanId: request.context.trace?.spanId,
-      parentSpanId: request.context.trace?.parentSpanId,
-      debug: false,
-    }
-
     return {
       pluginContext,
-      adapterContext,
+      flags,
+      argv,
     }
   }
 
