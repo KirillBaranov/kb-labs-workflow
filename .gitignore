@@ -64,4 +64,4 @@ packages/*/coverage/
 *.db
 
 # DevKit provenance
-.kb/devkit/tmp/
+.kb/devkit/tmp/.npmrc
