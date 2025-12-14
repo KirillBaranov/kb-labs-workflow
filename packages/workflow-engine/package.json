@@ -1,6 +1,6 @@
 {
   "name": "@kb-labs/workflow-engine",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "type": "module",
   "description": "Workflow orchestration engine for KB Labs.",
   "main": "./dist/index.js",
