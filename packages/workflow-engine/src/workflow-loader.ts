@@ -54,9 +54,8 @@ export class WorkflowLoader {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : String(error)
-        this.logger.error(`Failed to parse JSON workflow spec`, {
-          source,
-          error: message,
+        this.logger.error(`Failed to parse JSON workflow spec from ${source}`, error instanceof Error ? error : undefined, {
+          errorMessage: message,
         })
         throw new Error(`Failed to parse workflow spec JSON: ${message}`)
       }
@@ -66,9 +65,8 @@ export class WorkflowLoader {
       return parseYaml(trimmed)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      this.logger.error(`Failed to parse YAML workflow spec`, {
-        source,
-        error: message,
+      this.logger.error(`Failed to parse YAML workflow spec from ${source}`, error instanceof Error ? error : undefined, {
+        errorMessage: message,
       })
       throw new Error(`Failed to parse workflow spec YAML: ${message}`)
     }

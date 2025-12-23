@@ -1,6 +1,6 @@
 import type { JobRun, WorkflowRun } from '@kb-labs/workflow-contracts'
 import type { JobPriority } from '@kb-labs/workflow-constants'
-import type { RedisClientFactoryResult } from './redis'
+import type { ICache } from '@kb-labs/core-platform'
 import type { EngineLogger } from './types'
 
 export interface JobQueueEntry {
@@ -19,19 +19,17 @@ export interface SchedulerOptions {
 }
 
 export class Scheduler {
-  private readonly client
-  private readonly keys
+  private readonly cache: ICache
   private readonly defaultPriority: JobPriority
   private readonly lookAheadMs: number
   private readonly priorityOrder: JobPriority[] = ['high', 'normal', 'low']
 
   constructor(
-    private readonly redis: RedisClientFactoryResult,
+    cache: ICache,
     private readonly logger: EngineLogger,
     options: SchedulerOptions = {},
   ) {
-    this.client = redis.client
-    this.keys = redis.keys
+    this.cache = cache
     this.defaultPriority = options.defaultPriority ?? 'normal'
     this.lookAheadMs = options.lookAheadMs ?? 1000
   }
@@ -75,8 +73,8 @@ export class Scheduler {
       enqueuedAt: new Date().toISOString(),
       availableAt: now,
     }
-    await this.client.zadd(
-      this.keys.jobQueue(priority),
+    await this.cache.zadd(
+      `kb:jobqueue:${priority}`,
       entry.availableAt,
       JSON.stringify(entry),
     )
@@ -100,8 +98,8 @@ export class Scheduler {
       availableAt,
       enqueuedAt: new Date().toISOString(),
     }
-    await this.client.zadd(
-      this.keys.jobQueue(entry.priority),
+    await this.cache.zadd(
+      `kb:jobqueue:${entry.priority}`,
       availableAt,
       JSON.stringify(next),
     )
@@ -115,32 +113,28 @@ export class Scheduler {
 
   private async dequeueFromPriority(priority: JobPriority): Promise<JobQueueEntry | null> {
     const now = Date.now()
-    const key = this.keys.jobQueue(priority)
-    const earliest = await this.client.zrangebyscore(
+    const key = `kb:jobqueue:${priority}`
+    const results = await this.cache.zrangebyscore(
       key,
       0,
       now + this.lookAheadMs,
-      'LIMIT',
-      0,
-      1,
     )
-    if (earliest.length === 0) {
+
+    // Handle LIMIT manually - take only first result
+    if (results.length === 0) {
       return null
     }
 
-    const raw = earliest[0]
+    const raw = results[0]
     if (typeof raw !== 'string') {
       return null
     }
     try {
       const entry = JSON.parse(raw) as JobQueueEntry
-      const removed = await this.client.zrem(key, raw)
-      if (removed === 0) {
-        return null
-      }
+      await this.cache.zrem(key, raw)
       return entry
     } catch (error) {
-      this.logger.error('Failed to parse job queue entry', { error })
+      this.logger.error('Failed to parse job queue entry', error instanceof Error ? error : undefined)
       return null
     }
   }

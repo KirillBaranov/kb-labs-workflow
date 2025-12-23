@@ -1,28 +1,26 @@
 import type { JobRun, StepRun, WorkflowRun } from '@kb-labs/workflow-contracts'
-import type { RedisClientFactoryResult } from './redis'
+import type { ICache } from '@kb-labs/core-platform'
 import type { EngineLogger } from './types'
 
 export class StateStore {
-  private readonly client
-  private readonly keys
+  private readonly cache: ICache
 
   constructor(
-    private readonly redis: RedisClientFactoryResult,
+    cache: ICache,
     private readonly logger: EngineLogger,
   ) {
-    this.client = redis.client
-    this.keys = redis.keys
+    this.cache = cache
   }
 
   async saveRun(run: WorkflowRun): Promise<void> {
-    const key = this.keys.run(run.id)
+    const key = `kb:run:${run.id}`
     this.logger.debug('Persisting workflow run', { runId: run.id, key })
-    await this.client.set(key, JSON.stringify(run))
+    await this.cache.set(key, JSON.stringify(run))
   }
 
   async getRun(runId: string): Promise<WorkflowRun | null> {
-    const key = this.keys.run(runId)
-    const payload = await this.client.get(key)
+    const key = `kb:run:${runId}`
+    const payload = await this.cache.get<string>(key)
     if (!payload) {
       return null
     }
@@ -30,17 +28,16 @@ export class StateStore {
       const parsed = JSON.parse(payload) as WorkflowRun
       return parsed
     } catch (error) {
-      this.logger.error('Failed to parse stored workflow run', {
+      this.logger.error('Failed to parse stored workflow run', error instanceof Error ? error : undefined, {
         runId,
-        error,
       })
       return null
     }
   }
 
   async deleteRun(runId: string): Promise<void> {
-    const key = this.keys.run(runId)
-    await this.client.del(key)
+    const key = `kb:run:${runId}`
+    await this.cache.delete(key)
   }
 
   async updateRun(

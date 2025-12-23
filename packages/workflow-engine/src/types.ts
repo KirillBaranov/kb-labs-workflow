@@ -7,14 +7,13 @@ import type {
   IdempotencyKey,
   ConcurrencyGroup,
 } from '@kb-labs/workflow-contracts'
-import type { RedisClientFactoryResult } from './redis'
+import type { ILogger } from '@kb-labs/core-platform'
 
-export interface EngineLogger {
-  debug(message: string, meta?: Record<string, unknown>): void
-  info(message: string, meta?: Record<string, unknown>): void
-  warn(message: string, meta?: Record<string, unknown>): void
-  error(message: string, meta?: Record<string, unknown>): void
-}
+/**
+ * @deprecated Use ILogger from @kb-labs/core-platform instead.
+ * This type alias is kept for backward compatibility.
+ */
+export type EngineLogger = ILogger
 
 export interface WorkflowLoaderResult {
   spec: WorkflowSpec
@@ -36,25 +35,8 @@ export interface CreateRunInput {
   env?: Record<string, string>
 }
 
-export interface RunCoordinatorDeps {
-  redis: RedisClientFactoryResult
-  logger: EngineLogger
-}
-
-export interface ConcurrencyManagerDeps {
-  redis: RedisClientFactoryResult
-  logger: EngineLogger
-}
-
-export interface SchedulerDeps {
-  redis: RedisClientFactoryResult
-  logger: EngineLogger
-}
-
-export interface EventBusBridgeDeps {
-  redis: RedisClientFactoryResult
-  logger: EngineLogger
-}
+// Legacy Deps interfaces - kept for backward compatibility
+// These are no longer used as components now accept platform adapters directly
 
 
 

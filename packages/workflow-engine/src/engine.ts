@@ -1,4 +1,3 @@
-import pino from 'pino'
 import type {
   WorkflowRun,
   WorkflowSpec,
@@ -7,11 +6,8 @@ import {
   EVENT_NAMES,
   type WorkflowEventName,
 } from '@kb-labs/workflow-constants'
-import {
-  createRedisClient,
-  type CreateRedisClientOptions,
-  type RedisClientFactoryResult,
-} from './redis'
+import type { ICache } from '@kb-labs/core-platform'
+import type { CliAPI } from '@kb-labs/cli-api'
 import { StateStore } from './state-store'
 import { ConcurrencyManager, type AcquireOptions } from './concurrency-manager'
 import {
@@ -26,141 +22,85 @@ import {
 import { EventBusBridge } from './event-bus'
 import { WorkflowLoader } from './workflow-loader'
 import type { CreateRunInput, EngineLogger, RunContext } from './types'
-import type { WorkflowRegistry } from '@kb-labs/workflow-runtime'
-import { createWorkflowRegistry } from '@kb-labs/workflow-runtime'
 import { RunSnapshotStorage, type RunSnapshot } from './run-snapshot'
-import {
-  CronScheduler,
-  type CronSchedulerOptions,
-} from './cron/scheduler'
-
-// TODO: DegradationController will be implemented in workflow-engine
-// For now, use placeholder types
-type DegradationController = any
-type DegradationControllerOptions = Record<string, unknown>
-
-function createDefaultLogger(): EngineLogger {
-  const instance = pino({
-    name: 'workflow-engine',
-    level: process.env.LOG_LEVEL ?? 'info',
-  })
-
-  return {
-    debug(message, meta) {
-      instance.debug(meta ?? {}, message)
-    },
-    info(message, meta) {
-      instance.info(meta ?? {}, message)
-    },
-    warn(message, meta) {
-      instance.warn(meta ?? {}, message)
-    },
-    error(message, meta) {
-      if (meta && meta.error instanceof Error) {
-        instance.error(meta, message)
-      } else {
-        instance.error(meta ?? {}, message)
-      }
-    },
-  }
-}
 
 export interface WorkflowEngineOptions {
-  redis?: CreateRedisClientOptions
   scheduler?: SchedulerOptions
-  cronScheduler?: CronSchedulerOptions
-  degradation?: DegradationControllerOptions
   concurrency?: AcquireOptions
   runCoordinator?: RunCoordinatorOptions
-  logger?: EngineLogger
-  workflowRegistry?: WorkflowRegistry
   maxWorkflowDepth?: number
-  workspaceRoot?: string
+  /** CLI API for plugin registry snapshot (OPTIONAL - for plugin workflows) */
+  cliApi?: CliAPI
+  /** Platform cache adapter (REQUIRED) */
+  cache?: ICache
+  /** Platform event bus adapter (REQUIRED) */
+  events?: import('@kb-labs/core-platform').IEventBus
+  /** Platform logger (REQUIRED) */
+  logger?: import('@kb-labs/core-platform').ILogger
+  /** Platform execution backend (OPTIONAL - for plugin step execution) */
+  executionBackend?: import('@kb-labs/plugin-execution').ExecutionBackend
 }
 
 export class WorkflowEngine {
   readonly loader: WorkflowLoader
-  readonly workflowRegistry?: WorkflowRegistry
+  readonly cliApi?: CliAPI
   readonly maxWorkflowDepth: number
-  readonly cronScheduler: CronScheduler
-  // TODO: Implement DegradationController in workflow-engine when needed
-  // readonly degradationController: DegradationController
 
   private readonly logger: EngineLogger
-  private readonly redis: RedisClientFactoryResult
   private readonly stateStore: StateStore
   private readonly concurrency: ConcurrencyManager
   private readonly runCoordinator: RunCoordinator
   private readonly scheduler: Scheduler
   private readonly events: EventBusBridge
   private readonly snapshotStorage: RunSnapshotStorage
-  private registryInitialized = false
 
   constructor(private readonly options: WorkflowEngineOptions = {}) {
-    this.logger = options.logger ?? createDefaultLogger()
-    this.redis = createRedisClient(options.redis)
-    this.stateStore = new StateStore(this.redis, this.logger)
+    // Validate required platform adapters
+    if (!options.cache) {
+      throw new Error(
+        'WorkflowEngine: options.cache is required. ' +
+        'Pass platform.cache from @kb-labs/core-platform'
+      )
+    }
+    if (!options.events) {
+      throw new Error(
+        'WorkflowEngine: options.events is required. ' +
+        'Pass platform.events from @kb-labs/core-platform'
+      )
+    }
+    if (!options.logger) {
+      throw new Error(
+        'WorkflowEngine: options.logger is required. ' +
+        'Pass platform.logger from @kb-labs/core-platform'
+      )
+    }
+
+    this.logger = options.logger
+
+    this.stateStore = new StateStore(options.cache, this.logger)
     this.concurrency = new ConcurrencyManager(
-      this.redis,
+      options.cache,
       this.logger,
       options.concurrency,
     )
     this.runCoordinator = new RunCoordinator(
-      this.redis,
+      options.cache,
       this.stateStore,
       this.concurrency,
       this.logger,
       options.runCoordinator,
     )
-    this.scheduler = new Scheduler(this.redis, this.logger, options.scheduler)
-    this.cronScheduler = new CronScheduler(this.redis, options.cronScheduler)
-    // TODO: Implement DegradationController when needed
-    // this.degradationController = new DegradationController(this.redis, options.degradation)
-    this.events = new EventBusBridge(this.redis, this.logger)
+
+    this.scheduler = new Scheduler(options.cache, this.logger, options.scheduler)
+    this.events = new EventBusBridge(options.events, this.logger)
     this.loader = new WorkflowLoader(this.logger)
-    this.workflowRegistry = options.workflowRegistry
+    this.cliApi = options.cliApi
     this.maxWorkflowDepth = options.maxWorkflowDepth ?? 2
-    this.snapshotStorage = new RunSnapshotStorage(this.redis.client, this.logger)
-
-    // Start CronScheduler ticker
-    this.cronScheduler.start()
-    this.logger.info('CronScheduler started')
-
-    // TODO: Start DegradationController when implemented
-    // this.degradationController.start()
-    // this.logger.info('DegradationController started')
-  }
-
-  async initializeRegistry(workspaceRoot?: string): Promise<void> {
-    if (this.registryInitialized || this.workflowRegistry) {
-      return
-    }
-
-    if (workspaceRoot || this.options.workspaceRoot) {
-      const root = workspaceRoot ?? this.options.workspaceRoot ?? process.cwd()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(this as any).workflowRegistry = await createWorkflowRegistry({
-        workspaceRoot: root,
-      })
-      this.registryInitialized = true
-    }
+    this.snapshotStorage = new RunSnapshotStorage(options.cache, this.logger)
   }
 
   async dispose(): Promise<void> {
-    // Stop CronScheduler ticker
-    this.cronScheduler.stop()
-    this.logger.info('CronScheduler stopped')
-
-    // TODO: Stop DegradationController when implemented
-    // this.degradationController.stop()
-    // this.logger.info('DegradationController stopped')
-
-    const client: any = this.redis.client
-    if (typeof client.quit === 'function') {
-      await client.quit()
-    } else if (typeof client.disconnect === 'function') {
-      client.disconnect()
-    }
+    // Cleanup if needed
   }
 
   async createRun(input: CreateRunInput): Promise<WorkflowRun> {
@@ -407,13 +347,6 @@ export class WorkflowEngine {
    */
   async deleteSnapshot(runId: string): Promise<void> {
     await this.snapshotStorage.deleteSnapshot(runId)
-  }
-
-  /**
-   * List all available snapshots
-   */
-  async listSnapshots(limit = 100): Promise<string[]> {
-    return this.snapshotStorage.listSnapshots(limit)
   }
 }
 
