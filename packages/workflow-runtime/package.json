@@ -1,6 +1,6 @@
 {
   "name": "@kb-labs/workflow-runtime",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "description": "Runtime adapters and step executors for the KB Labs workflow engine.",
   "main": "./dist/index.js",
@@ -27,12 +27,13 @@
     "lint:fix": "eslint . --fix --ignore-pattern 'dist/**'"
   },
   "dependencies": {
-    "@kb-labs/cli-core": "link:../../../kb-labs-cli/packages/cli-core",
+    "@kb-labs/cli-api": "link:../../../kb-labs-cli/packages/cli-api",
+    "@kb-labs/plugin-contracts": "link:../../../kb-labs-plugin/packages/plugin-contracts",
+    "@kb-labs/plugin-execution": "link:../../../kb-labs-plugin/packages/plugin-execution",
+    "@kb-labs/plugin-runtime": "link:../../../kb-labs-plugin/packages/plugin-runtime",
     "@kb-labs/workflow-artifacts": "workspace:*",
     "@kb-labs/workflow-constants": "workspace:*",
     "@kb-labs/workflow-contracts": "workspace:*",
-    "@kb-labs/plugin-manifest": "link:../../../kb-labs-plugin/packages/plugin-manifest",
-    "@kb-labs/plugin-runtime": "link:../../../kb-labs-plugin/packages/plugin-runtime",
     "execa": "^8.0.0",
     "fast-glob": "^3.3.2",
     "pino": "^9.4.0",
