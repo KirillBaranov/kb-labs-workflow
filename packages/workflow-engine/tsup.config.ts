@@ -4,7 +4,7 @@ import nodePreset from '@kb-labs/devkit/tsup/node.js'
 export default defineConfig({
   ...nodePreset,
   tsconfig: "tsconfig.build.json", // Use build-specific tsconfig without paths
-  dts: true, // Re-enabled after fixing JobRunnerPresenter UIFacade implementation and removing wrong IEventBus usage
+  dts: true, // Re-enabled after V3 migration
   entry: {
     index: 'src/index.ts',
   },
