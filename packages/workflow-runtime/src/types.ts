@@ -1,7 +1,7 @@
 import type { StepSpec } from '@kb-labs/workflow-contracts'
 import type { ArtifactClient } from '@kb-labs/workflow-artifacts'
 import type { StepState } from '@kb-labs/workflow-constants'
-import type { PluginContext } from '@kb-labs/plugin-runtime'
+import type { PluginContextV3 as PluginContext } from '@kb-labs/plugin-contracts'
 
 export type { ArtifactClient } from '@kb-labs/workflow-artifacts'
 

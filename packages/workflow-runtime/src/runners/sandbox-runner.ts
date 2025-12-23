@@ -1,239 +1,348 @@
+/**
+ * @module @kb-labs/workflow-runtime/runners/sandbox-runner
+ *
+ * V3 SandboxRunner - executes plugin handlers using platform ExecutionBackend.
+ *
+ * This runner is for steps that specify `uses: "plugin:..."` or `uses: "command:..."`.
+ * It delegates execution to the platform's unified ExecutionBackend instead of
+ * implementing custom plugin execution logic.
+ *
+ * ## Integration Pattern (REST API-style)
+ *
+ * Instead of direct plugin discovery and loading, we:
+ * 1. Accept ExecutionBackend from platform (via options)
+ * 2. Build ExecutionRequest with PluginContextDescriptor
+ * 3. Call backend.execute() - platform handles the rest
+ *
+ * This matches the REST API pattern where execution is delegated to the platform layer.
+ *
+ * @example
+ * ```typescript
+ * const runner = new SandboxRunner({
+ *   backend: platform.executionBackend,
+ *   cliApi, // For plugin resolution
+ * });
+ *
+ * const result = await runner.execute({
+ *   spec: { uses: 'plugin:release-manager/create-release', with: { version: '1.0.0' } },
+ *   context: stepContext,
+ * });
+ * ```
+ */
+
+import { randomUUID } from 'node:crypto'
+import type { StepSpec } from '@kb-labs/workflow-contracts'
+import type {
+  ExecutionBackend,
+  ExecutionRequest,
+  PluginContextDescriptor,
+  HostContext,
+} from '@kb-labs/plugin-execution'
+import type { CliAPI } from '@kb-labs/cli-api'
 import type {
   Runner,
   StepExecutionRequest,
   StepExecutionResult,
 } from '../types'
-import type {
-  ExecuteInput,
-  ExecuteResult,
-  ExecutionContext,
-  HandlerRef,
-  PluginRegistry,
-} from '@kb-labs/plugin-runtime'
-import { execute as executePlugin } from '@kb-labs/plugin-runtime'
-import type { ManifestV2, PermissionSpec } from '@kb-labs/plugin-manifest'
-
-const PLUGIN_PREFIX = 'plugin:'
-
-export interface PluginCommandResolution {
-  manifest: ManifestV2
-  handler: HandlerRef
-  permissions: PermissionSpec
-  pluginRoot: string
-  input?: unknown
-  registry?: PluginRegistry
-  contextOverrides?: Partial<ExecutionContext>
-}
 
 export interface SandboxRunnerOptions {
-  timeoutMs?: number
-  resolveCommand?: (
-    commandRef: string,
-    request: StepExecutionRequest,
-  ) => Promise<PluginCommandResolution>
+  /**
+   * Platform ExecutionBackend (REQUIRED).
+   * Obtained from platform.executionBackend.
+   */
+  backend: ExecutionBackend
+
+  /**
+   * CLI API for plugin resolution (REQUIRED).
+   * Needed to resolve plugin IDs to plugin roots and handler paths.
+   */
+  cliApi: CliAPI
+
+  /**
+   * Workspace root directory.
+   * Default: process.cwd()
+   */
+  workspaceRoot?: string
+
+  /**
+   * Default timeout for plugin execution (ms).
+   * Default: 120000 (2 minutes)
+   */
+  defaultTimeout?: number
 }
 
+interface PluginCommandResolution {
+  pluginId: string
+  pluginVersion: string
+  pluginRoot: string
+  handler: string
+  input: unknown
+}
+
+/**
+ * SandboxRunner - V3 implementation using platform ExecutionBackend.
+ *
+ * Executes plugin handlers through the unified execution layer.
+ * Supports both `uses: "plugin:id/handler"` and `uses: "command:name"` syntax.
+ */
 export class SandboxRunner implements Runner {
-  constructor(private readonly options: SandboxRunnerOptions = {}) {}
+  private readonly backend: ExecutionBackend
+  private readonly cliApi: CliAPI
+  private readonly workspaceRoot: string
+  private readonly defaultTimeout: number
+
+  constructor(options: SandboxRunnerOptions) {
+    this.backend = options.backend
+    this.cliApi = options.cliApi
+    this.workspaceRoot = options.workspaceRoot ?? process.cwd()
+    this.defaultTimeout = options.defaultTimeout ?? 120000 // 2 minutes
+  }
 
   async execute(request: StepExecutionRequest): Promise<StepExecutionResult> {
-    const { spec, context } = request
-    
-    // Debug: log entry
-    context.logger.info('SandboxRunner.execute called', {
-      uses: spec.uses,
-      stepId: context.stepId,
-    })
-    
-    if (!spec.uses || typeof spec.uses !== 'string') {
-      context.logger.error('Sandbox runner requires step.uses to be defined', {
+    const { spec, context, workspace, signal } = request
+
+    // Early cancellation check
+    if (signal?.aborted) {
+      return buildCancelledResult(signal)
+    }
+
+    // Validate step has uses field
+    if (!spec.uses) {
+      context.logger.error('SandboxRunner requires step.uses field', {
         stepId: context.stepId,
       })
       return {
         status: 'failed',
         error: {
-          message: 'Sandbox runner requires step.uses to be defined',
-          code: 'SANDBOX_INVALID_USES',
+          message: 'Sandbox runner requires "uses" field to specify plugin handler',
+          code: 'INVALID_STEP',
         },
       }
     }
 
-    if (!spec.uses.startsWith(PLUGIN_PREFIX)) {
-      context.logger.error('Sandbox runner supports only plugin:* steps', {
-        stepId: context.stepId,
-        uses: spec.uses,
-      })
-      return {
-        status: 'failed',
-        error: {
-          message: `Sandbox runner supports only "${PLUGIN_PREFIX}*" steps`,
-          code: 'SANDBOX_UNSUPPORTED_STEP',
-        },
-      }
-    }
-
-    if (!this.options.resolveCommand) {
-      context.logger.error('Sandbox runner command resolver not configured')
-      return {
-        status: 'failed',
-        error: {
-          message: 'Sandbox runner is not configured to resolve plugin commands',
-          code: 'SANDBOX_RESOLVER_MISSING',
-        },
-      }
-    }
-
-    if (request.signal?.aborted) {
-      return buildCancelledResult(request.signal, spec.name)
-    }
-
-    const commandRef = spec.uses.slice(PLUGIN_PREFIX.length)
-
+    // Resolve plugin command
     let resolution: PluginCommandResolution
     try {
-      resolution = await this.options.resolveCommand(commandRef, request)
+      resolution = await this.resolveCommand(spec, request)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      context.logger.error('Failed to resolve plugin command', {
-        commandRef,
+      const message = error instanceof Error ? error.message : 'Failed to resolve plugin command'
+      context.logger.error('Plugin command resolution failed', {
+        stepId: context.stepId,
+        uses: spec.uses,
         error: message,
       })
       return {
         status: 'failed',
         error: {
-          message: `Failed to resolve plugin command "${commandRef}": ${message}`,
-          code: 'SANDBOX_RESOLVE_FAILED',
+          message,
+          code: 'COMMAND_RESOLUTION_FAILED',
         },
       }
     }
 
-    if (!resolution.permissions) {
-      context.logger.error('Sandbox runner resolver returned no permissions', {
-        commandRef,
-      })
-      return {
-        status: 'failed',
-        error: {
-          message: `Resolver did not provide permissions for "${commandRef}"`,
-          code: 'SANDBOX_PERMISSIONS_MISSING',
-        },
-      }
+    // Build PluginContextDescriptor (matches REST API pattern)
+    const requestId = context.trace?.traceId ?? randomUUID()
+    const executionId = `exec_${context.stepId}_${Date.now()}_${randomUUID().slice(0, 8)}`
+
+    const hostContext: HostContext = {
+      host: 'workflow',
+      workflowId: context.runId, // Using runId as workflowId for now
+      runId: context.runId,
+      jobId: context.jobId,
+      stepId: context.stepId,
+      attempt: context.attempt,
+      input: resolution.input,
     }
 
-    const executeInput: ExecuteInput = {
+    const descriptor: PluginContextDescriptor = {
+      host: 'workflow', // Required field at top level
+      pluginId: resolution.pluginId,
+      pluginVersion: resolution.pluginVersion,
+      requestId,
+      cwd: workspace ?? this.workspaceRoot,
+      permissions: {}, // TODO: Extract from plugin manifest if needed
+      hostContext,
+      // Note: config is loaded at runtime from kb.config.json
+    }
+
+    // Build ExecutionRequest (matches REST API pattern)
+    const executionRequest: ExecutionRequest = {
+      executionId,
+      descriptor,
+      pluginRoot: resolution.pluginRoot,
+      handlerRef: resolution.handler,
+      input: resolution.input,
+      workspace: {
+        type: 'local',
+        cwd: workspace ?? this.workspaceRoot,
+      },
+      timeoutMs: this.defaultTimeout,
+    }
+
+    // Log execution start
+    context.logger.info('Executing plugin handler', {
+      stepId: context.stepId,
+      pluginId: resolution.pluginId,
       handler: resolution.handler,
-      input:
-        resolution.input ??
-        spec.with ??
-        {
-          step: spec.name,
-          metadata: {
-            runId: context.runId,
-            jobId: context.jobId,
-            stepId: context.stepId,
-          },
-        },
-      manifest: resolution.manifest,
-      perms: resolution.permissions,
-    }
+      executionId,
+    })
 
-    const artifactBase =
-      typeof context.artifacts?.basePath === 'function'
-        ? context.artifacts.basePath()
-        : undefined
+    // Execute via backend
+    const result = await this.backend.execute(executionRequest, { signal })
 
-    const contextOverrides = resolution.contextOverrides ?? {}
-    const overridePluginRoot = contextOverrides.pluginRoot as string | undefined
-
-    const baseContext: ExecutionContext = {
-      requestId: `${context.runId}:${context.jobId}:${context.stepId}`,
-      pluginId: resolution.manifest.id,
-      pluginVersion: resolution.manifest.version,
-      routeOrCommand: commandRef,
-      workdir:
-        request.workspace ??
-        artifactBase ??
-        process.cwd(),
-      outdir:
-        artifactBase ??
-        request.workspace,
-      pluginRoot: overridePluginRoot ?? resolution.pluginRoot,
-      traceId: context.trace?.traceId ?? context.runId,
-      spanId: context.trace?.spanId,
-      parentSpanId: context.trace?.parentSpanId,
-      debug: false,
-      jsonMode: false,
-    }
-
-    // Explicitly apply adapterContext and adapterMeta from contextOverrides
-    const executionContext: ExecutionContext = {
-      ...baseContext,
-      ...contextOverrides,
-      // Ensure adapterContext and adapterMeta are explicitly set
-      adapterContext: contextOverrides.adapterContext as any,
-      adapterMeta: contextOverrides.adapterMeta as any,
-      signal: request.signal ?? (contextOverrides.signal as AbortSignal | undefined),
-    }
-
-    // Debug: log adapterContext if present
-    if (executionContext.adapterContext && executionContext.adapterContext.type === 'cli') {
-      const cliCtx = executionContext.adapterContext
-      context.logger.info('SandboxRunner: adapterContext with flags', {
-        hasFlags: !!cliCtx.flags,
-        flagsKeys: cliCtx.flags ? Object.keys(cliCtx.flags) : [],
-        flags: cliCtx.flags,
-        hasAdapterMeta: !!executionContext.adapterMeta,
+    // Map ExecutionResult to StepExecutionResult
+    if (result.ok) {
+      context.logger.info('Plugin handler completed', {
+        stepId: context.stepId,
+        executionId,
+        executionTimeMs: result.executionTimeMs,
       })
-    } else {
-      context.logger.warn('SandboxRunner: adapterContext missing or not CLI', {
-        hasAdapterContext: !!executionContext.adapterContext,
-        adapterContextType: executionContext.adapterContext?.type,
-        hasAdapterMeta: !!executionContext.adapterMeta,
-        adapterMetaType: executionContext.adapterMeta?.type,
-        contextOverridesKeys: resolution.contextOverrides ? Object.keys(resolution.contextOverrides) : [],
-      })
-    }
 
-    // Final check: ensure adapterContext is in executionContext before calling executePlugin
-    if (!executionContext.adapterContext && resolution.contextOverrides?.adapterContext) {
-      // Force apply adapterContext if it wasn't applied via spread
-      executionContext.adapterContext = resolution.contextOverrides.adapterContext as any
-      executionContext.adapterMeta = resolution.contextOverrides.adapterMeta as any
-      context.logger.warn('SandboxRunner: Force-applied adapterContext from contextOverrides')
-    }
-
-    try {
-      const result = await executePlugin(
-        executeInput,
-        executionContext,
-        resolution.registry,
-      )
-      return transformPluginResult(result, context.stepId)
-    } catch (error) {
-      if (request.signal?.aborted) {
-        return buildCancelledResult(request.signal, spec.name)
+      return {
+        status: 'success',
+        outputs: typeof result.data === 'object' && result.data !== null
+          ? (result.data as Record<string, unknown>)
+          : { result: result.data },
       }
-      const message = error instanceof Error ? error.message : String(error)
-      context.logger.error('Sandbox runner execution failed', {
-        commandRef,
-        error: message,
+    } else {
+      // Check if cancelled
+      if (signal?.aborted || result.error?.code === 'ABORTED') {
+        return buildCancelledResult(signal, result.error)
+      }
+
+      context.logger.error('Plugin handler failed', {
+        stepId: context.stepId,
+        executionId,
+        error: result.error?.message,
+        code: result.error?.code,
       })
+
       return {
         status: 'failed',
         error: {
-          message: `Sandbox execution failed: ${message}`,
-          code: 'SANDBOX_EXECUTION_FAILED',
+          message: result.error?.message ?? 'Plugin execution failed',
+          code: result.error?.code ?? 'UNKNOWN_ERROR',
+          stack: result.error?.stack,
+          details: result.error?.details,
         },
       }
     }
   }
+
+  /**
+   * Resolve command reference to plugin handler.
+   *
+   * Supports two formats:
+   * - `uses: "plugin:release-manager/create-release"` - direct plugin handler reference
+   * - `uses: "command:release:create"` - command name (resolved via CLI API)
+   *
+   * Returns plugin ID, version, root path, handler path, and input.
+   */
+  private async resolveCommand(
+    spec: StepSpec,
+    request: StepExecutionRequest,
+  ): Promise<PluginCommandResolution> {
+    const uses = spec.uses!
+    const input = spec.with ?? {}
+
+    // Format 1: plugin:id/handler
+    if (uses.startsWith('plugin:')) {
+      return this.resolvePluginHandler(uses, input)
+    }
+
+    // Format 2: command:name
+    if (uses.startsWith('command:')) {
+      return this.resolveCommandName(uses, input, request)
+    }
+
+    // Unsupported format
+    throw new Error(`Unsupported uses format: ${uses}. Expected "plugin:..." or "command:..."`)
+  }
+
+  /**
+   * Resolve plugin handler reference.
+   * Format: `plugin:id/handler` or `plugin:id/path/to/handler`
+   */
+  private async resolvePluginHandler(
+    uses: string,
+    input: unknown,
+  ): Promise<PluginCommandResolution> {
+    const pluginRef = uses.slice('plugin:'.length)
+    const [pluginId, ...handlerParts] = pluginRef.split('/')
+
+    if (!pluginId || handlerParts.length === 0) {
+      throw new Error(`Invalid plugin reference: ${uses}. Expected "plugin:id/handler"`)
+    }
+
+    const handlerName = handlerParts.join('/')
+
+    // Get plugin manifest from CLI API snapshot
+    const snapshot = this.cliApi.snapshot()
+    const entry = snapshot.manifests?.find(m => m.pluginId === pluginId)
+
+    if (!entry) {
+      throw new Error(`Plugin not found: ${pluginId}`)
+    }
+
+    // Find workflow handler by name
+    const workflowHandlers = entry.manifest.workflows?.handlers ?? []
+    const handler = workflowHandlers.find(h => h.id === handlerName)
+
+    if (!handler) {
+      throw new Error(`Workflow handler not found: ${handlerName} in plugin ${pluginId}`)
+    }
+
+    return {
+      pluginId,
+      pluginVersion: entry.manifest.version,
+      pluginRoot: entry.pluginRoot,
+      handler: handler.handler, // File path from manifest
+      input,
+    }
+  }
+
+  /**
+   * Resolve command name to plugin handler.
+   * Format: `command:name` (e.g., `command:release:create`)
+   *
+   * Searches for command in CLI API snapshot and resolves to handler.
+   */
+  private async resolveCommandName(
+    uses: string,
+    input: unknown,
+    request: StepExecutionRequest,
+  ): Promise<PluginCommandResolution> {
+    const commandName = uses.slice('command:'.length)
+
+    // Get CLI API snapshot
+    const snapshot = this.cliApi.snapshot()
+
+    // Search all manifests for matching CLI command
+    for (const entry of snapshot.manifests ?? []) {
+      const commands = entry.manifest.cli?.commands ?? []
+      const command = commands.find((c) => c.id === commandName)
+
+      if (command) {
+        return {
+          pluginId: entry.pluginId,
+          pluginVersion: entry.manifest.version,
+          pluginRoot: entry.pluginRoot,
+          handler: command.handler,
+          input,
+        }
+      }
+    }
+
+    throw new Error(`Command not found: ${commandName}`)
+  }
 }
 
 function buildCancelledResult(
-  signal: AbortSignal,
-  stepName: string,
+  signal?: AbortSignal,
+  error?: { message: string },
 ): StepExecutionResult {
-  const reason = signalReason(signal) ?? `Step "${stepName}" cancelled`
+  const reason = error?.message ?? signalReason(signal) ?? 'Step execution cancelled'
+
   return {
     status: 'cancelled',
     error: {
@@ -243,8 +352,8 @@ function buildCancelledResult(
   }
 }
 
-function signalReason(signal: AbortSignal): string | undefined {
-  if (!signal.aborted) {
+function signalReason(signal?: AbortSignal): string | undefined {
+  if (!signal?.aborted) {
     return undefined
   }
   const reason = (signal as AbortSignal & { reason?: unknown }).reason
@@ -256,35 +365,3 @@ function signalReason(signal: AbortSignal): string | undefined {
   }
   return undefined
 }
-
-function transformPluginResult(
-  result: ExecuteResult,
-  stepId: string,
-): StepExecutionResult {
-  if (result.ok) {
-    return {
-      status: 'success',
-      outputs: {
-        data: result.data,
-        metrics: result.metrics,
-        logs: result.logs,
-        profile: result.profile,
-        stepId,
-      },
-    }
-  }
-
-  return {
-    status: 'failed',
-    error: {
-      message: result.error.message,
-      code: result.error.code,
-      details: {
-        httpStatus: result.error.http,
-        meta: result.error.meta,
-      },
-    },
-  }
-}
-
-

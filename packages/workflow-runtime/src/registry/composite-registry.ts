@@ -1,18 +1,19 @@
 import type { ResolvedWorkflow, WorkflowRegistry } from './types'
+import type { CliAPI } from '@kb-labs/cli-api'
 import { WorkspaceWorkflowRegistry } from './workspace-registry'
-import { PluginWorkflowRegistry } from './plugin-registry'
 import { RemoteWorkflowRegistry } from './remote-registry'
+import { extractWorkflows } from './plugin-workflows'
 import { WorkflowRegistryError } from './errors'
 
 /**
- * Composite registry that combines workspace, plugin, and remote registries
+ * Composite registry that combines workspace, plugin (via CliAPI), and remote registries
  */
 export class CompositeWorkflowRegistry implements WorkflowRegistry {
   private cache: ResolvedWorkflow[] | null = null
 
   constructor(
     private readonly workspace: WorkspaceWorkflowRegistry,
-    private readonly plugin: PluginWorkflowRegistry,
+    private readonly cliApi: CliAPI | null,
     private readonly remote?: RemoteWorkflowRegistry,
   ) {}
 
@@ -23,8 +24,13 @@ export class CompositeWorkflowRegistry implements WorkflowRegistry {
 
     const registries: Promise<ResolvedWorkflow[]>[] = [
       this.workspace.list(),
-      this.plugin.list(),
     ]
+
+    // Extract plugin workflows from CliAPI snapshot
+    if (this.cliApi) {
+      const snapshot = this.cliApi.snapshot()
+      registries.push(extractWorkflows(snapshot))
+    }
 
     if (this.remote) {
       registries.push(this.remote.list())
@@ -61,8 +67,10 @@ export class CompositeWorkflowRegistry implements WorkflowRegistry {
       return this.workspace.resolve(id)
     }
 
-    if (id.startsWith('plugin:')) {
-      return this.plugin.resolve(id)
+    if (id.startsWith('plugin:') && this.cliApi) {
+      const snapshot = this.cliApi.snapshot()
+      const { findWorkflow } = await import('./plugin-workflows')
+      return findWorkflow(snapshot, id)
     }
 
     if (id.startsWith('remote:') && this.remote) {
@@ -90,8 +98,8 @@ export class CompositeWorkflowRegistry implements WorkflowRegistry {
     this.cache = null
     const refreshTasks = [
       this.workspace.refresh(),
-      this.plugin.refresh(),
     ]
+    // Plugin workflows refresh via CliAPI.refreshRegistry() - no-op here
     if (this.remote) {
       refreshTasks.push(this.remote.refresh())
     }
@@ -101,7 +109,6 @@ export class CompositeWorkflowRegistry implements WorkflowRegistry {
   async dispose(): Promise<void> {
     await Promise.all([
       this.workspace.dispose?.() ?? Promise.resolve(),
-      this.plugin.dispose?.() ?? Promise.resolve(),
       this.remote?.dispose?.() ?? Promise.resolve(),
     ])
   }
