@@ -1,6 +1,6 @@
 import { CONCURRENCY_TTL_ENV } from '@kb-labs/workflow-constants'
 import type { ConcurrencyGroup } from '@kb-labs/workflow-contracts'
-import type { RedisClientFactoryResult } from './redis'
+import type { ICache } from '@kb-labs/core-platform'
 import type { EngineLogger } from './types'
 
 const DEFAULT_TTL_MS = 1000 * 60 * 30 // 30 minutes
@@ -22,17 +22,15 @@ export interface AcquireOptions {
 }
 
 export class ConcurrencyManager {
-  private readonly client
-  private readonly keys
+  private readonly cache: ICache
   private readonly ttlMs: number
 
   constructor(
-    private readonly redis: RedisClientFactoryResult,
+    cache: ICache,
     private readonly logger: EngineLogger,
     options: AcquireOptions = {},
   ) {
-    this.client = redis.client
-    this.keys = redis.keys
+    this.cache = cache
     this.ttlMs = resolveTtlMs(options.ttlMs)
   }
 
@@ -42,16 +40,9 @@ export class ConcurrencyManager {
     options: AcquireOptions = {},
   ): Promise<boolean> {
     const ttl = resolveTtlMs(options.ttlMs ?? this.ttlMs)
-    const key = this.keys.concurrency(group)
-    const result = await this.client.set(
-      key,
-      runId,
-      'PX',
-      ttl,
-      'NX',
-    )
+    const key = `kb:concurrency:${group}`
+    const acquired = await this.cache.setIfNotExists(key, runId, ttl)
 
-    const acquired = result === 'OK'
     this.logger.debug('Concurrency acquire attempt', {
       group,
       runId,
@@ -61,17 +52,17 @@ export class ConcurrencyManager {
   }
 
   async release(group: ConcurrencyGroup, runId: string): Promise<void> {
-    const key = this.keys.concurrency(group)
-    const current = await this.client.get(key)
+    const key = `kb:concurrency:${group}`
+    const current = await this.cache.get<string>(key)
     if (current === runId) {
-      await this.client.del(key)
+      await this.cache.delete(key)
       this.logger.debug('Concurrency lock released', { group, runId })
     }
   }
 
   async getActiveRun(group: ConcurrencyGroup): Promise<string | null> {
-    const key = this.keys.concurrency(group)
-    return (await this.client.get(key)) ?? null
+    const key = `kb:concurrency:${group}`
+    return await this.cache.get<string>(key)
   }
 }
 

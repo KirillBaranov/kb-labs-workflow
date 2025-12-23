@@ -6,10 +6,10 @@ import type {
   StepRun,
   WorkflowRun,
 } from '@kb-labs/workflow-contracts'
+import type { ICache } from '@kb-labs/core-platform'
 import type { StateStore } from './state-store'
 import type { ConcurrencyManager } from './concurrency-manager'
 import type { EngineLogger, CreateRunInput } from './types'
-import type { RedisClientFactoryResult } from './redis'
 
 const DEFAULT_IDEMPOTENCY_TTL_MS = 1000 * 60 * 60 * 24 // 24h
 
@@ -30,19 +30,17 @@ export interface RunCoordinatorOptions {
 }
 
 export class RunCoordinator {
-  private readonly client
-  private readonly keys
+  private readonly cache: ICache
   private readonly idempotencyTtlMs: number
 
   constructor(
-    private readonly redis: RedisClientFactoryResult,
+    cache: ICache,
     private readonly stateStore: StateStore,
     private readonly concurrencyManager: ConcurrencyManager,
     private readonly logger: EngineLogger,
     options: RunCoordinatorOptions = {},
   ) {
-    this.client = redis.client
-    this.keys = redis.keys
+    this.cache = cache
     this.idempotencyTtlMs = resolveIdempotencyTtlMs(options.idempotencyTtlMs)
   }
 
@@ -172,17 +170,15 @@ export class RunCoordinator {
     key: string,
     runId: string,
   ): Promise<void> {
-    const redisKey = this.keys.idempotency(key)
-    const result = await this.client.set(
-      redisKey,
+    const cacheKey = `kb:idempotency:${key}`
+    const registered = await this.cache.setIfNotExists(
+      cacheKey,
       runId,
-      'PX',
       this.idempotencyTtlMs,
-      'NX',
     )
 
-    if (result !== 'OK') {
-      const existingRunId = await this.client.get(redisKey)
+    if (!registered) {
+      const existingRunId = await this.cache.get<string>(cacheKey)
       if (existingRunId) {
         const existing = await this.stateStore.getRun(existingRunId)
         if (existing) {
@@ -198,8 +194,8 @@ export class RunCoordinator {
   private async loadByIdempotencyKey(
     key: string,
   ): Promise<WorkflowRun | null> {
-    const redisKey = this.keys.idempotency(key)
-    const existingRunId = await this.client.get(redisKey)
+    const cacheKey = `kb:idempotency:${key}`
+    const existingRunId = await this.cache.get<string>(cacheKey)
     if (!existingRunId) {
       return null
     }
