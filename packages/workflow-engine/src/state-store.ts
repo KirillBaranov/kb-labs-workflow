@@ -15,7 +15,13 @@ export class StateStore {
   async saveRun(run: WorkflowRun): Promise<void> {
     const key = `kb:run:${run.id}`
     this.logger.debug('Persisting workflow run', { runId: run.id, key })
+
+    // Save run data
     await this.cache.set(key, JSON.stringify(run))
+
+    // Add to sorted set index (score = createdAt timestamp for time-based ordering)
+    const timestamp = new Date(run.createdAt).getTime()
+    await this.cache.zadd('workflow:runs:index', timestamp, run.id)
   }
 
   async getRun(runId: string): Promise<WorkflowRun | null> {
@@ -37,7 +43,12 @@ export class StateStore {
 
   async deleteRun(runId: string): Promise<void> {
     const key = `kb:run:${runId}`
+
+    // Remove from cache
     await this.cache.delete(key)
+
+    // Remove from sorted set index
+    await this.cache.zrem('workflow:runs:index', runId)
   }
 
   async updateRun(

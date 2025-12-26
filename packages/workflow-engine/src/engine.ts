@@ -7,7 +7,6 @@ import {
   type WorkflowEventName,
 } from '@kb-labs/workflow-constants'
 import type { ICache } from '@kb-labs/core-platform'
-import type { CliAPI } from '@kb-labs/cli-api'
 import { StateStore } from './state-store'
 import { ConcurrencyManager, type AcquireOptions } from './concurrency-manager'
 import {
@@ -29,8 +28,6 @@ export interface WorkflowEngineOptions {
   concurrency?: AcquireOptions
   runCoordinator?: RunCoordinatorOptions
   maxWorkflowDepth?: number
-  /** CLI API for plugin registry snapshot (OPTIONAL - for plugin workflows) */
-  cliApi?: CliAPI
   /** Platform cache adapter (REQUIRED) */
   cache?: ICache
   /** Platform event bus adapter (REQUIRED) */
@@ -43,7 +40,6 @@ export interface WorkflowEngineOptions {
 
 export class WorkflowEngine {
   readonly loader: WorkflowLoader
-  readonly cliApi?: CliAPI
   readonly maxWorkflowDepth: number
 
   private readonly logger: EngineLogger
@@ -94,7 +90,6 @@ export class WorkflowEngine {
     this.scheduler = new Scheduler(options.cache, this.logger, options.scheduler)
     this.events = new EventBusBridge(options.events, this.logger)
     this.loader = new WorkflowLoader(this.logger)
-    this.cliApi = options.cliApi
     this.maxWorkflowDepth = options.maxWorkflowDepth ?? 2
     this.snapshotStorage = new RunSnapshotStorage(options.cache, this.logger)
   }

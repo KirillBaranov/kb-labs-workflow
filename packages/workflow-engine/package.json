@@ -7,8 +7,9 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     }
   },
   "typesVersions": {
@@ -34,9 +35,7 @@
     "lint:fix": "eslint . --fix --ignore-pattern 'dist/**'"
   },
   "dependencies": {
-    "@kb-labs/cli-api": "link:../../../kb-labs-cli/packages/cli-api",
     "@kb-labs/core-platform": "link:../../../kb-labs-core/packages/core-platform",
-    "@kb-labs/core-sys": "link:../../../kb-labs-core/packages/core-sys",
     "@kb-labs/plugin-execution": "link:../../../kb-labs-plugin/packages/plugin-execution",
     "@kb-labs/workflow-artifacts": "workspace:*",
     "@kb-labs/workflow-constants": "workspace:*",
