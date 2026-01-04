@@ -10,5 +10,9 @@ export * from './retry'
 export * from './engine'
 export * from './artifact-merger'
 export * from './run-snapshot'
+export * from './manifest-scanner'
+export * from './workflow-repository'
+export * from './workflow-service'
+export * from './workflow-schedule-manager'
 
 
