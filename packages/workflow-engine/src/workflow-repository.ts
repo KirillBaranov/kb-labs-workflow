@@ -1,0 +1,394 @@
+/**
+ * @module @kb-labs/workflow-engine/workflow-repository
+ *
+ * Repository for standalone workflow definitions.
+ *
+ * ## Features
+ * - CRUD operations for user-created workflows
+ * - File-based storage via platform.storage (`.kb/workflows/*.yaml`)
+ * - Validation using WorkflowSpecSchema
+ * - Conversion to unified WorkflowRuntime format
+ *
+ * ## Usage
+ * ```typescript
+ * const repo = new WorkflowRepository({ platform });
+ * const workflow = await repo.create(spec);
+ * ```
+ */
+
+import { randomUUID } from 'node:crypto';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { WorkflowSpecSchema } from '@kb-labs/workflow-contracts';
+import type { WorkflowSpec, JobSpec } from '@kb-labs/workflow-contracts';
+import type { PlatformServices } from '@kb-labs/plugin-contracts';
+import type {
+  WorkflowRuntime,
+  WorkflowTrigger,
+  WorkflowSchedule,
+  WorkflowStats,
+} from './manifest-scanner';
+
+/**
+ * Stored workflow metadata (what we persist to disk)
+ */
+interface StoredWorkflow {
+  id: string;
+  spec: WorkflowSpec;
+  createdAt: string;
+  updatedAt: string;
+  status: 'active' | 'paused' | 'disabled';
+  stats?: WorkflowStats;
+}
+
+/**
+ * List options for filtering workflows
+ */
+export interface WorkflowListOptions {
+  status?: 'active' | 'paused' | 'disabled';
+  tags?: string[];
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Options for WorkflowRepository
+ */
+export interface WorkflowRepositoryOptions {
+  /** Platform services (for storage, logger, etc.) */
+  platform: PlatformServices;
+
+  /** Storage directory for workflows (default: '.kb/workflows') */
+  storageDir?: string;
+}
+
+/**
+ * Workflow Repository
+ *
+ * Manages standalone workflow definitions (user-created via UI/API).
+ * Uses platform.storage for persistence.
+ */
+export class WorkflowRepository {
+  private readonly platform: PlatformServices;
+  private readonly storageDir: string;
+
+  constructor(options: WorkflowRepositoryOptions) {
+    this.platform = options.platform;
+    this.storageDir = options.storageDir ?? '.kb/workflows';
+  }
+
+  /**
+   * Create a new standalone workflow.
+   */
+  async create(spec: WorkflowSpec): Promise<WorkflowRuntime> {
+    // Validate spec
+    const validated = WorkflowSpecSchema.parse(spec);
+
+    // Generate ID
+    const id = `wf-${randomUUID().slice(0, 8)}`;
+
+    const stored: StoredWorkflow = {
+      id,
+      spec: validated,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: 'active',
+    };
+
+    // Save to storage
+    await this.saveWorkflow(id, stored);
+
+    this.platform.logger?.info('WorkflowRepository: Created workflow', {
+      id,
+      name: spec.name,
+    });
+
+    return this.toRuntime(stored);
+  }
+
+  /**
+   * Get workflow by ID.
+   */
+  async get(id: string): Promise<WorkflowRuntime | null> {
+    const stored = await this.loadWorkflow(id);
+    return stored ? this.toRuntime(stored) : null;
+  }
+
+  /**
+   * List all workflows with optional filtering.
+   */
+  async list(options?: WorkflowListOptions): Promise<WorkflowRuntime[]> {
+    const allFiles = await this.listWorkflowFiles();
+    const workflows: WorkflowRuntime[] = [];
+
+    for (const filename of allFiles) {
+      const id = filename.replace('.yaml', '');
+      const stored = await this.loadWorkflow(id);
+      if (!stored) continue;
+
+      // Apply filters
+      if (options?.status && stored.status !== options.status) {
+        continue;
+      }
+
+      workflows.push(this.toRuntime(stored));
+    }
+
+    // Apply pagination
+    if (options?.offset !== undefined || options?.limit !== undefined) {
+      const start = options.offset ?? 0;
+      const end = options.limit ? start + options.limit : undefined;
+      return workflows.slice(start, end);
+    }
+
+    return workflows;
+  }
+
+  /**
+   * Update existing workflow.
+   */
+  async update(id: string, spec: Partial<WorkflowSpec>): Promise<WorkflowRuntime> {
+    const stored = await this.loadWorkflow(id);
+    if (!stored) {
+      throw new Error(`Workflow not found: ${id}`);
+    }
+
+    // Merge with existing spec
+    const updatedSpec = { ...stored.spec, ...spec };
+
+    // Validate merged spec
+    const validated = WorkflowSpecSchema.parse(updatedSpec);
+
+    const updated: StoredWorkflow = {
+      ...stored,
+      spec: validated,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.saveWorkflow(id, updated);
+
+    this.platform.logger?.info('WorkflowRepository: Updated workflow', {
+      id,
+      name: validated.name,
+    });
+
+    return this.toRuntime(updated);
+  }
+
+  /**
+   * Delete workflow.
+   */
+  async delete(id: string): Promise<void> {
+    const path = this.getWorkflowPath(id);
+
+    try {
+      await this.platform.storage.delete(path);
+      this.platform.logger?.info('WorkflowRepository: Deleted workflow', { id });
+    } catch (error) {
+      this.platform.logger?.error(
+        'WorkflowRepository: Delete failed',
+        error instanceof Error ? error : undefined,
+        { id }
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Enable workflow (set status to active).
+   */
+  async enable(id: string): Promise<void> {
+    await this.updateStatus(id, 'active');
+  }
+
+  /**
+   * Disable workflow.
+   */
+  async disable(id: string): Promise<void> {
+    await this.updateStatus(id, 'disabled');
+  }
+
+  /**
+   * Pause workflow.
+   */
+  async pause(id: string): Promise<void> {
+    await this.updateStatus(id, 'paused');
+  }
+
+  /**
+   * Resume workflow (unpause).
+   */
+  async resume(id: string): Promise<void> {
+    await this.updateStatus(id, 'active');
+  }
+
+  /**
+   * Update workflow statistics.
+   */
+  async updateStats(id: string, stats: Partial<WorkflowStats>): Promise<void> {
+    const stored = await this.loadWorkflow(id);
+    if (!stored) {
+      throw new Error(`Workflow not found: ${id}`);
+    }
+
+    const updated: StoredWorkflow = {
+      ...stored,
+      stats: { ...stored.stats, ...stats } as WorkflowStats,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.saveWorkflow(id, updated);
+  }
+
+  // ============================================================================
+  // Private helpers
+  // ============================================================================
+
+  private async updateStatus(
+    id: string,
+    status: 'active' | 'paused' | 'disabled'
+  ): Promise<void> {
+    const stored = await this.loadWorkflow(id);
+    if (!stored) {
+      throw new Error(`Workflow not found: ${id}`);
+    }
+
+    const updated: StoredWorkflow = {
+      ...stored,
+      status,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.saveWorkflow(id, updated);
+    this.platform.logger?.info('WorkflowRepository: Updated workflow status', {
+      id,
+      status,
+    });
+  }
+
+  private getWorkflowPath(id: string): string {
+    return `${this.storageDir}/${id}.yaml`;
+  }
+
+  private async saveWorkflow(id: string, workflow: StoredWorkflow): Promise<void> {
+    const path = this.getWorkflowPath(id);
+    const yaml = stringifyYaml(workflow, { indent: 2 });
+    const buffer = Buffer.from(yaml, 'utf-8');
+
+    try {
+      await this.platform.storage.write(path, buffer);
+    } catch (error) {
+      this.platform.logger?.error(
+        'WorkflowRepository: Save failed',
+        error instanceof Error ? error : undefined,
+        { path }
+      );
+      throw error;
+    }
+  }
+
+  private async loadWorkflow(id: string): Promise<StoredWorkflow | null> {
+    const path = this.getWorkflowPath(id);
+
+    try {
+      const buffer = await this.platform.storage.read(path);
+      if (!buffer) {
+        return null;
+      }
+
+      const content = buffer.toString('utf-8');
+      const workflow = parseYaml(content) as StoredWorkflow;
+      return workflow;
+    } catch (error) {
+      // File not found is expected, other errors should be logged
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        return null;
+      }
+
+      this.platform.logger?.error(
+        'WorkflowRepository: Load failed',
+        error instanceof Error ? error : undefined,
+        { path }
+      );
+      return null;
+    }
+  }
+
+  private async listWorkflowFiles(): Promise<string[]> {
+    try {
+      // List all .yaml files in storage directory
+      const files = await this.platform.storage.list(this.storageDir);
+      return files.filter((f) => f.endsWith('.yaml'));
+    } catch (error) {
+      // Directory doesn't exist yet - return empty array
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        return [];
+      }
+
+      this.platform.logger?.error(
+        'WorkflowRepository: List failed',
+        error instanceof Error ? error : undefined
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Convert stored workflow to WorkflowRuntime format.
+   */
+  private toRuntime(stored: StoredWorkflow): WorkflowRuntime {
+    const { id, spec, status, stats } = stored;
+
+    // Convert triggers from spec.on to WorkflowTrigger[]
+    const triggers: WorkflowTrigger[] = [];
+    if (spec.on.manual) {
+      triggers.push({ type: 'manual' });
+    }
+    if (spec.on.push) {
+      triggers.push({ type: 'push' });
+    }
+    if (spec.on.webhook) {
+      triggers.push({
+        type: 'webhook',
+        config: typeof spec.on.webhook === 'object' ? spec.on.webhook : undefined,
+      });
+    }
+
+    // Extract schedule if present
+    let schedule: WorkflowSchedule | undefined;
+    if (spec.on.schedule) {
+      triggers.push({
+        type: 'schedule',
+        config: spec.on.schedule,
+      });
+
+      schedule = {
+        cron: spec.on.schedule.cron,
+        enabled: status === 'active',
+      };
+    }
+
+    // Extract tags from spec (we can use env vars or description as source)
+    const tags: string[] = ['standalone'];
+    if (spec.description) {
+      // Extract hashtags from description
+      const hashtagMatches = spec.description.match(/#\w+/g);
+      if (hashtagMatches) {
+        tags.push(...hashtagMatches.map((t) => t.slice(1)));
+      }
+    }
+
+    return {
+      id,
+      source: 'standalone',
+      name: spec.name,
+      description: spec.description,
+      tags,
+      triggers,
+      schedule,
+      status,
+      stats,
+      // Store spec for later execution
+      input: spec,
+    };
+  }
+}
