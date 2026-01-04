@@ -155,11 +155,10 @@ export class SandboxRunner implements Runner {
     }
 
     const descriptor: PluginContextDescriptor = {
-      host: 'workflow', // Required field at top level
+      hostType: 'workflow',
       pluginId: resolution.pluginId,
       pluginVersion: resolution.pluginVersion,
       requestId,
-      cwd: workspace ?? this.workspaceRoot,
       permissions: {}, // TODO: Extract from plugin manifest if needed
       hostContext,
       // Note: config is loaded at runtime from kb.config.json
@@ -278,7 +277,7 @@ export class SandboxRunner implements Runner {
 
     // Get plugin manifest from CLI API snapshot
     const snapshot = this.cliApi.snapshot()
-    const entry = snapshot.manifests?.find(m => m.pluginId === pluginId)
+    const entry = snapshot.manifests?.find((m: { pluginId: string }) => m.pluginId === pluginId)
 
     if (!entry) {
       throw new Error(`Plugin not found: ${pluginId}`)
@@ -286,7 +285,7 @@ export class SandboxRunner implements Runner {
 
     // Find workflow handler by name
     const workflowHandlers = entry.manifest.workflows?.handlers ?? []
-    const handler = workflowHandlers.find(h => h.id === handlerName)
+    const handler = workflowHandlers.find((h: { id: string }) => h.id === handlerName)
 
     if (!handler) {
       throw new Error(`Workflow handler not found: ${handlerName} in plugin ${pluginId}`)
@@ -320,7 +319,7 @@ export class SandboxRunner implements Runner {
     // Search all manifests for matching CLI command
     for (const entry of snapshot.manifests ?? []) {
       const commands = entry.manifest.cli?.commands ?? []
-      const command = commands.find((c) => c.id === commandName)
+      const command = commands.find((c: { id: string }) => c.id === commandName)
 
       if (command) {
         return {
