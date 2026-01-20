@@ -42,6 +42,17 @@ export async function createWorkflowWorker(
   let isRunning = false;
   let stopRequested = false;
 
+  // Track running jobs for graceful shutdown
+  const runningJobs = new Map<string, Promise<void>>();
+
+  // Create logger adapter for RuntimeLogger interface
+  const runtimeLogger = {
+    debug: (message: string, meta?: Record<string, unknown>) => logger.debug(message, meta),
+    info: (message: string, meta?: Record<string, unknown>) => logger.info(message, meta),
+    warn: (message: string, meta?: Record<string, unknown>) => logger.warn(message, meta),
+    error: (message: string, meta?: Record<string, unknown>) => logger.error(message, undefined, meta),
+  };
+
   // Create SandboxRunner with ExecutionBackend
   const runner = new SandboxRunner({
     backend: executionBackend,
@@ -60,71 +71,85 @@ export async function createWorkflowWorker(
     }
 
     const { run, job } = entry;
+    const jobKey = `${run.id}:${job.id}`;
 
     logger.info('Processing job', {
       runId: run.id,
       jobId: job.id,
-      jobName: job.name,
+      jobName: job.jobName,
     });
 
-    try {
-      // Execute job steps using SandboxRunner
-      for (const step of job.steps) {
-        if (step.status === 'success') {
-          continue; // Skip already completed steps
-        }
+    // Create job execution promise for graceful shutdown tracking
+    const jobPromise = (async () => {
+      try {
+        // Execute job steps using SandboxRunner
+        for (const step of job.steps) {
+          if (step.status === 'success') {
+            continue; // Skip already completed steps
+          }
 
-        logger.info('Executing step', {
-          runId: run.id,
-          jobId: job.id,
-          stepId: step.id,
-        });
-
-        const result = await runner.execute({
-          spec: step,
-          context: {
+          logger.info('Executing step', {
             runId: run.id,
             jobId: job.id,
             stepId: step.id,
-            attempt: 1,
-            logger,
-          },
-          workspace: workspaceRoot,
-        });
-
-        if (result.status === 'failed') {
-          logger.error('Step failed', {
-            runId: run.id,
-            jobId: job.id,
-            stepId: step.id,
-            error: result.error?.message,
           });
-          throw new Error(result.error?.message ?? 'Step execution failed');
+
+          const result = await runner.execute({
+            spec: step,
+            context: {
+              runId: run.id,
+              jobId: job.id,
+              stepId: step.id,
+              attempt: 1,
+              env: run.env || {},
+              secrets: run.secrets || {},
+              logger: runtimeLogger,
+            },
+            workspace: workspaceRoot,
+          });
+
+          if (result.status === 'failed') {
+            const error = new Error(result.error?.message ?? 'Step execution failed');
+            logger.error('Step failed', error, {
+              runId: run.id,
+              jobId: job.id,
+              stepId: step.id,
+            });
+            throw error;
+          }
+
+          logger.info('Step completed', {
+            runId: run.id,
+            jobId: job.id,
+            stepId: step.id,
+          });
         }
 
-        logger.info('Step completed', {
+        // Mark job as completed
+        await engine.markJobCompleted(run.id, job.id);
+
+        logger.info('Job completed successfully', {
           runId: run.id,
           jobId: job.id,
-          stepId: step.id,
         });
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+
+        // Mark job as failed (will retry if configured)
+        await engine.markJobFailed(run.id, job.id, err, true);
+      } finally {
+        // Remove from tracking
+        runningJobs.delete(jobKey);
       }
+    })();
 
-      logger.info('Job completed successfully', {
-        runId: run.id,
-        jobId: job.id,
-      });
+    // Track running job
+    runningJobs.set(jobKey, jobPromise);
 
-      return true;
-    } catch (error) {
-      logger.error('Job failed', {
-        runId: run.id,
-        jobId: job.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    // Wait for completion
+    await jobPromise;
 
-      // TODO: Update job status to failed in engine
-      return true;
-    }
+    return true;
   }
 
   /**
@@ -175,12 +200,54 @@ export async function createWorkflowWorker(
         return;
       }
 
-      logger.info('Stopping workflow worker');
+      logger.info('Stopping workflow worker', {
+        runningJobsCount: runningJobs.size,
+      });
+
+      // Signal stop
       stopRequested = true;
       isRunning = false;
 
-      // Wait for graceful shutdown
-      await sleep(1000);
+      // Wait for in-flight jobs to complete (graceful shutdown)
+      if (runningJobs.size > 0) {
+        logger.info('Waiting for in-flight jobs to complete', {
+          count: runningJobs.size,
+        });
+
+        const shutdownTimeoutMs = parseInt(
+          process.env.WORKFLOW_SHUTDOWN_TIMEOUT_MS || '120000',
+          10
+        );
+
+        try {
+          // Wait for all running jobs with timeout
+          await Promise.race([
+            Promise.all(Array.from(runningJobs.values())),
+            sleep(shutdownTimeoutMs),
+          ]);
+
+          if (runningJobs.size > 0) {
+            logger.warn('Shutdown timeout reached, marking jobs as interrupted', {
+              count: runningJobs.size,
+            });
+
+            // Mark unfinished jobs as interrupted
+            for (const [jobKey] of runningJobs) {
+              const [runId, jobId] = jobKey.split(':');
+              if (runId && jobId) {
+                await engine.markJobInterrupted(runId, jobId);
+              }
+            }
+          } else {
+            logger.info('All in-flight jobs completed gracefully');
+          }
+        } catch (error) {
+          logger.error('Error during graceful shutdown', error instanceof Error ? error : undefined, {
+            runningJobsCount: runningJobs.size,
+          });
+        }
+      }
+
       logger.info('Workflow worker stopped');
     },
   };

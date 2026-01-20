@@ -11,7 +11,7 @@ import {
   statusFlags,
   logsFlags,
   listFlags,
-} from '@kb-labs/workflow-contracts';
+} from './flags';
 
 /**
  * Minimal permissions - workflow-cli only makes HTTP requests
