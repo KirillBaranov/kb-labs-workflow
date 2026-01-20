@@ -14,5 +14,6 @@ export * from './manifest-scanner'
 export * from './workflow-repository'
 export * from './workflow-service'
 export * from './workflow-schedule-manager'
+export * from './workflow-registry'
 
 
