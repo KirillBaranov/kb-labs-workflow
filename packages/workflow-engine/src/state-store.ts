@@ -54,7 +54,7 @@ export class StateStore {
   async getAllRunIds(): Promise<string[]> {
     // Get all run IDs from sorted set index (ordered by creation time)
     // Score range: -inf to +inf (all runs)
-    const runIds = await this.cache.zrange('workflow:runs:index', 0, -1)
+    const runIds = await this.cache.zrangebyscore('workflow:runs:index', -Infinity, Infinity)
     return runIds ?? []
   }
 

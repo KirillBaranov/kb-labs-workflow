@@ -157,6 +157,206 @@ export class WorkflowEngine {
     })
   }
 
+  /**
+   * Mark job as failed and optionally schedule retry.
+   * Implements exponential/linear backoff retry logic.
+   */
+  async markJobFailed(
+    runId: string,
+    jobId: string,
+    error: Error,
+    shouldRetry = true
+  ): Promise<void> {
+    const run = await this.stateStore.getRun(runId)
+    if (!run) {
+      this.logger.warn('Cannot mark job as failed: run not found', { runId, jobId })
+      return
+    }
+
+    const job = run.jobs.find((j) => j.id === jobId)
+    if (!job) {
+      this.logger.warn('Cannot mark job as failed: job not found', { runId, jobId })
+      return
+    }
+
+    // Update job status to failed
+    await this.stateStore.updateJob(runId, jobId, (draft) => {
+      draft.status = 'failed'
+      draft.error = {
+        message: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString(),
+      }
+      draft.finishedAt = new Date().toISOString()
+      draft.attempt = (draft.attempt || 0) + 1
+    })
+
+    this.logger.error('Job failed', error, {
+      runId,
+      jobId,
+      attempt: (job.attempt || 0) + 1,
+    })
+
+    // Check if should retry
+    if (shouldRetry && this.shouldRetryJob(job)) {
+      const backoffMs = this.calculateBackoff(job.attempt || 0, job.retries)
+
+      this.logger.info('Scheduling job retry', {
+        runId,
+        jobId,
+        attempt: (job.attempt || 0) + 1,
+        backoffMs,
+      })
+
+      // Re-queue job after backoff
+      setTimeout(async () => {
+        await this.stateStore.updateJob(runId, jobId, (draft) => {
+          draft.status = 'queued'
+          draft.error = undefined
+          draft.startedAt = undefined
+          draft.finishedAt = undefined
+        })
+
+        // Re-enqueue in scheduler
+        const updatedRun = await this.stateStore.getRun(runId)
+        const updatedJob = updatedRun?.jobs.find((j) => j.id === jobId)
+        if (updatedJob) {
+          await this.scheduler.enqueueJob(runId, updatedJob, updatedJob.priority ?? 'normal')
+        }
+
+        this.logger.info('Job re-queued for retry', { runId, jobId })
+      }, backoffMs)
+    } else {
+      // Move to Dead Letter Queue
+      await this.moveToDLQ(runId, jobId, error)
+    }
+  }
+
+  /**
+   * Mark job as interrupted (e.g., during graceful shutdown).
+   * Interrupted jobs will be retried on next daemon startup.
+   */
+  async markJobInterrupted(runId: string, jobId: string): Promise<void> {
+    await this.stateStore.updateJob(runId, jobId, (draft) => {
+      draft.status = 'interrupted'
+      draft.finishedAt = new Date().toISOString()
+    })
+
+    this.logger.warn('Job interrupted', { runId, jobId })
+  }
+
+  /**
+   * Mark job as completed successfully.
+   */
+  async markJobCompleted(runId: string, jobId: string): Promise<void> {
+    await this.stateStore.updateJob(runId, jobId, (draft) => {
+      draft.status = 'success'
+      draft.finishedAt = new Date().toISOString()
+    })
+
+    this.logger.info('Job completed successfully', { runId, jobId })
+  }
+
+  /**
+   * Resume interrupted jobs on daemon startup.
+   * Re-queues jobs that were interrupted during previous shutdown.
+   */
+  async resumeInterruptedJobs(): Promise<void> {
+    const runIds = await this.stateStore.getAllRunIds()
+
+    let resumedCount = 0
+    for (const runId of runIds) {
+      const run = await this.stateStore.getRun(runId)
+      if (!run) continue
+
+      for (const job of run.jobs) {
+        if (job.status === 'interrupted') {
+          this.logger.info('Resuming interrupted job', { runId, jobId: job.id })
+
+          await this.stateStore.updateJob(runId, job.id, (draft) => {
+            draft.status = 'queued'
+            draft.startedAt = undefined
+            draft.finishedAt = undefined
+          })
+
+          // Re-enqueue in scheduler
+          const queuedJob = { ...job, status: 'queued' as const }
+          await this.scheduler.enqueueJob(runId, queuedJob, queuedJob.priority ?? 'normal')
+          resumedCount++
+        }
+      }
+    }
+
+    if (resumedCount > 0) {
+      this.logger.info('Resumed interrupted jobs', { count: resumedCount })
+    }
+  }
+
+  /**
+   * Determine if job should be retried based on retry policy.
+   */
+  private shouldRetryJob(job: import('@kb-labs/workflow-contracts').JobRun): boolean {
+    const retryPolicy = job.retries || { max: 3, backoff: 'exp' as const }
+    const attempt = job.attempt || 0
+
+    return attempt < retryPolicy.max
+  }
+
+  /**
+   * Calculate backoff delay using exponential or linear strategy.
+   */
+  private calculateBackoff(
+    attempt: number,
+    policy?: { backoff: 'exp' | 'lin'; initialIntervalMs?: number; maxIntervalMs?: number }
+  ): number {
+    const config = {
+      backoff: policy?.backoff || 'exp',
+      initialIntervalMs: policy?.initialIntervalMs || 1000,
+      maxIntervalMs: policy?.maxIntervalMs || 60000,
+    }
+
+    let backoffMs: number
+
+    if (config.backoff === 'exp') {
+      // Exponential: 1s, 2s, 4s, 8s, 16s, 32s...
+      backoffMs = config.initialIntervalMs * Math.pow(2, attempt)
+    } else {
+      // Linear: 1s, 2s, 3s, 4s, 5s...
+      backoffMs = config.initialIntervalMs * (attempt + 1)
+    }
+
+    // Cap at maxIntervalMs
+    return Math.min(backoffMs, config.maxIntervalMs)
+  }
+
+  /**
+   * Move permanently failed job to Dead Letter Queue.
+   */
+  private async moveToDLQ(runId: string, jobId: string, error: Error): Promise<void> {
+    this.logger.warn('Job moved to DLQ after max retries', { runId, jobId })
+
+    // Store in cache with DLQ prefix
+    const dlqKey = `workflow:dlq:${runId}:${jobId}`
+    const run = await this.stateStore.getRun(runId)
+    const job = run?.jobs.find((j) => j.id === jobId)
+
+    await this.options.cache!.set(
+      dlqKey,
+      JSON.stringify({
+        runId,
+        jobId,
+        jobName: job?.jobName,
+        error: {
+          message: error.message,
+          stack: error.stack,
+        },
+        timestamp: new Date().toISOString(),
+        attempts: job?.attempt || 0,
+      }),
+      7 * 24 * 60 * 60 * 1000 // TTL 7 days
+    )
+  }
+
   async updateRun(
     runId: string,
     mutator: (run: WorkflowRun) => WorkflowRun | void,
