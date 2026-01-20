@@ -1,0 +1,44 @@
+{
+  "name": "@kb-labs/workflow-daemon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workflow daemon for KB Labs - standalone service for background job execution",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "kb-workflow": "./dist/index.js"
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "tsup",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {
+    "@kb-labs/core-runtime": "link:../../../kb-labs-core/packages/core-runtime",
+    "@kb-labs/core-config": "link:../../../kb-labs-core/packages/core-config",
+    "@kb-labs/core-sys": "link:../../../kb-labs-core/packages/core-sys",
+    "@kb-labs/core-platform": "link:../../../kb-labs-core/packages/core-platform",
+    "@kb-labs/workflow-engine": "workspace:*",
+    "@kb-labs/workflow-runtime": "workspace:*",
+    "@kb-labs/workflow-contracts": "workspace:*",
+    "@kb-labs/plugin-execution": "link:../../../kb-labs-plugin/packages/plugin-execution",
+    "@kb-labs/plugin-contracts": "link:../../../kb-labs-plugin/packages/plugin-contracts",
+    "@kb-labs/cli-api": "link:../../../kb-labs-cli/packages/cli-api",
+    "@fastify/cors": "^8.4.0",
+    "fastify": "^4.24.3",
+    "pino": "^8.16.2",
+    "yaml": "^2.8.0"
+  },
+  "devDependencies": {
+    "@kb-labs/devkit": "link:../../../kb-labs-devkit",
+    "@types/node": "^20.10.0",
+    "rimraf": "^6.0.1",
+    "tsup": "^8",
+    "tsx": "^4.20.5",
+    "typescript": "^5"
+  }
+}
