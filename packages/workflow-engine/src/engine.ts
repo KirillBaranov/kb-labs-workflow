@@ -343,6 +343,96 @@ export class WorkflowEngine {
   async deleteSnapshot(runId: string): Promise<void> {
     await this.snapshotStorage.deleteSnapshot(runId)
   }
+
+  /**
+   * Get all active workflow executions (running or queued).
+   * Returns array of WorkflowRun objects with status 'running' or 'queued'.
+   */
+  async getActiveExecutions(): Promise<WorkflowRun[]> {
+    const active: WorkflowRun[] = []
+
+    // Get all run IDs from sorted set index
+    const runIds = await this.stateStore.getAllRunIds()
+
+    // Filter for active runs
+    for (const runId of runIds) {
+      const run = await this.stateStore.getRun(runId)
+      if (run && (run.status === 'running' || run.status === 'queued')) {
+        active.push(run)
+      }
+    }
+
+    return active
+  }
+
+  /**
+   * Get workflow engine metrics.
+   * Returns statistics about runs, jobs, and system health.
+   */
+  async getMetrics(): Promise<{
+    runs: {
+      total: number
+      queued: number
+      running: number
+      completed: number
+      failed: number
+      cancelled: number
+    }
+    jobs: {
+      total: number
+      queued: number
+      running: number
+      completed: number
+      failed: number
+    }
+  }> {
+    // Get all run IDs
+    const runIds = await this.stateStore.getAllRunIds()
+
+    const metrics = {
+      runs: {
+        total: 0,
+        queued: 0,
+        running: 0,
+        completed: 0,
+        failed: 0,
+        cancelled: 0,
+      },
+      jobs: {
+        total: 0,
+        queued: 0,
+        running: 0,
+        completed: 0,
+        failed: 0,
+      },
+    }
+
+    // Aggregate metrics from all runs
+    for (const runId of runIds) {
+      const run = await this.stateStore.getRun(runId)
+      if (!run) continue
+
+      metrics.runs.total++
+
+      // Count run status
+      if (run.status === 'queued') metrics.runs.queued++
+      else if (run.status === 'running') metrics.runs.running++
+      else if (run.status === 'success') metrics.runs.completed++
+      else if (run.status === 'failed') metrics.runs.failed++
+      else if (run.status === 'cancelled') metrics.runs.cancelled++
+
+      // Count job statuses
+      for (const job of run.jobs) {
+        metrics.jobs.total++
+        if (job.status === 'queued') metrics.jobs.queued++
+        else if (job.status === 'running') metrics.jobs.running++
+        else if (job.status === 'success') metrics.jobs.completed++
+        else if (job.status === 'failed') metrics.jobs.failed++
+      }
+    }
+
+    return metrics
+  }
 }
 
 function computeDurationMs(
