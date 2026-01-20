@@ -12,6 +12,7 @@ export default defineConfig({
     'src/commands/status.ts',
     'src/commands/logs.ts',
     'src/commands/list.ts',
+    'src/commands/run.ts',
   ],
   external: [
     '@kb-labs/sdk',

@@ -11,6 +11,7 @@ import {
   statusFlags,
   logsFlags,
   listFlags,
+  runFlags,
 } from './flags';
 
 /**
@@ -134,8 +135,8 @@ export const manifest = {
         group: 'workflow',
         describe: 'List active workflow executions.',
         longDescription:
-          'Lists all currently active workflow executions. Can be filtered by status (running, queued, ' +
-          'completed, failed, cancelled).',
+          'Lists all currently active workflow executions or cron jobs. Can be filtered by status (running, queued, ' +
+          'completed, failed, cancelled) or type (runs, cron).',
 
         handler: './commands/list.js#default',
         handlerPath: './commands/list.js',
@@ -145,7 +146,30 @@ export const manifest = {
         examples: [
           'kb workflow list',
           'kb workflow list --status=running',
+          'kb workflow list --type=cron',
           'kb workflow list --json',
+        ],
+      },
+
+      // workflow:run - Submit job for execution
+      {
+        id: 'workflow:run',
+        group: 'workflow',
+        describe: 'Submit a job for execution.',
+        longDescription:
+          'Submits a job to the workflow daemon for execution. Requires a handler (plugin command) and ' +
+          'optionally accepts input parameters as JSON. Can wait for job completion with --wait flag.',
+
+        handler: './commands/run.js#default',
+        handlerPath: './commands/run.js',
+
+        flags: defineCommandFlags(runFlags),
+
+        examples: [
+          'kb workflow run --handler=mind:rag-query --input=\'{"text":"test"}\'',
+          'kb workflow run --handler=mind:rag-query --input=\'{"text":"test"}\' --wait',
+          'kb workflow run --handler=mind:rag-query --input=\'{"text":"test"}\' --priority=8',
+          'kb workflow run --handler=mind:rag-query --input=\'{"text":"test"}\' --json',
         ],
       },
     ],

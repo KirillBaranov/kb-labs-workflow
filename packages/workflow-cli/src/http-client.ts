@@ -95,4 +95,31 @@ export class WorkflowDaemonClient {
     const data = await response.json();
     return data.data;
   }
+
+  /**
+   * Submit a job for execution
+   */
+  async submitJob(params: {
+    handler: string;
+    input?: unknown;
+    priority?: number;
+  }): Promise<{ id: string; status: string }> {
+    const response = await fetch(`${this.baseUrl}/jobs/submit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(params),
+    });
+
+    if (!response.ok) {
+      const error = (await response.json().catch(() => ({ error: response.statusText }))) as {
+        error?: string;
+      };
+      throw new Error(error.error || `Failed to submit job: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.data;
+  }
 }

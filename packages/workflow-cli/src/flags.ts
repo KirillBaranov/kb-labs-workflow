@@ -82,6 +82,40 @@ export const listFlags = {
     type: 'string',
     description: 'Filter by status (running, completed, failed)',
   },
+  type: {
+    type: 'string',
+    description: 'Filter by type: "runs" (active executions), "cron" (scheduled jobs)',
+  },
 } as const;
 
 export type ListFlags = typeof listFlags;
+
+/**
+ * Flags for workflow:run command
+ */
+export const runFlags = {
+  json: {
+    type: 'boolean',
+    description: 'Output result as JSON',
+    default: false,
+  },
+  handler: {
+    type: 'string',
+    description: 'Plugin handler to run (e.g., "mind:rag-query")',
+  },
+  input: {
+    type: 'string',
+    description: 'JSON string of input parameters',
+  },
+  priority: {
+    type: 'number',
+    description: 'Job priority (1-10, default: 5)',
+  },
+  wait: {
+    type: 'boolean',
+    description: 'Wait for job completion',
+    default: false,
+  },
+} as const;
+
+export type RunFlags = typeof runFlags;
