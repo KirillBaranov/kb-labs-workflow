@@ -8,10 +8,12 @@ import cors from '@fastify/cors';
 import type { WorkflowEngine } from '@kb-labs/workflow-engine';
 import type { ILogger } from '@kb-labs/core-platform';
 import type { JobBroker } from './job-broker.js';
+import type { CronScheduler } from './cron-scheduler.js';
 
 export interface CreateServerOptions {
   engine: WorkflowEngine;
   jobBroker: JobBroker;
+  cronScheduler?: CronScheduler;
   logger: ILogger;
 }
 
@@ -20,7 +22,7 @@ export interface CreateServerOptions {
  * Provides endpoints for job management and monitoring.
  */
 export async function createServer(options: CreateServerOptions) {
-  const { engine, jobBroker, logger } = options;
+  const { engine, jobBroker, cronScheduler, logger } = options;
 
   const server = Fastify({
     logger: false, // Use platform logger instead
@@ -128,12 +130,33 @@ export async function createServer(options: CreateServerOptions) {
     };
   });
 
-  // List schedules (placeholder)
-  server.get('/schedules', async () => {
-    // TODO: Integrate with CronScheduler
+  // List cron jobs
+  server.get('/cron/jobs', async () => {
+    if (!cronScheduler) {
+      return {
+        ok: true,
+        data: { cronJobs: [] },
+      };
+    }
+
+    const cronJobs = cronScheduler.getRegisteredJobs();
     return {
       ok: true,
-      data: { schedules: [] },
+      data: {
+        cronJobs: cronJobs.map(job => ({
+          id: job.id,
+          source: job.source,
+          schedule: job.schedule,
+          timezone: job.timezone,
+          priority: job.priority,
+          enabled: job.enabled,
+          handler: job.handler,
+          workflowName: job.workflowSpec?.name,
+          metadata: job.metadata,
+        })),
+        total: cronJobs.length,
+        running: cronScheduler.isSchedulerRunning(),
+      },
     };
   });
 

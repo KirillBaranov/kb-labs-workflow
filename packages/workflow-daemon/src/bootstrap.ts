@@ -9,6 +9,8 @@ import { platform } from '@kb-labs/core-runtime';
 import { WorkflowEngine } from '@kb-labs/workflow-engine';
 import { createWorkflowWorker } from './worker.js';
 import { JobBroker } from './job-broker.js';
+import { CronScheduler } from './cron-scheduler.js';
+import { CronDiscovery } from './cron-discovery.js';
 import { createServer } from './server.js';
 import { createCliAPI } from '@kb-labs/cli-api';
 import { findRepoRoot } from '@kb-labs/core-sys';
@@ -19,6 +21,7 @@ import type { FastifyInstance } from 'fastify';
 // Singleton instances for cleanup
 let workerInstance: WorkflowWorker | null = null;
 let serverInstance: FastifyInstance | null = null;
+let cronSchedulerInstance: CronScheduler | null = null;
 
 /**
  * Bootstrap workflow daemon.
@@ -85,15 +88,31 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
     executionBackend: platform.executionBackend,
   });
 
+  // Resume interrupted jobs from previous shutdown
+  bootstrapLogger.info('Resuming interrupted jobs');
+  await engine.resumeInterruptedJobs();
+
   // Create JobBroker
   bootstrapLogger.info('Creating JobBroker');
   const jobBroker = new JobBroker(engine, platform.logger);
+
+  // Create CronScheduler (before HTTP server so it can be exposed via API)
+  bootstrapLogger.info('Creating CronScheduler');
+  const cronScheduler = new CronScheduler({
+    jobBroker,
+    logger: platform.logger,
+    timezone: process.env.WORKFLOW_CRON_TIMEZONE,
+  });
+
+  // Store cron scheduler instance for cleanup
+  cronSchedulerInstance = cronScheduler;
 
   // Create HTTP API server
   bootstrapLogger.info('Creating HTTP server');
   const server = await createServer({
     engine,
     jobBroker,
+    cronScheduler,
     logger: platform.logger,
   });
 
@@ -128,13 +147,39 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
     });
   });
 
+  // Discover cron jobs from plugin manifests and user YAML files
+  bootstrapLogger.info('Discovering cron jobs');
+  const cronDiscovery = new CronDiscovery({
+    cliApi,
+    scheduler: cronScheduler,
+    logger: platform.logger,
+    workspaceRoot: repoRoot,
+  });
+
+  const discovered = await cronDiscovery.discoverAll();
+  bootstrapLogger.info('Cron job discovery complete', discovered);
+
+  // Start cron scheduler
+  if (discovered.plugins + discovered.users > 0) {
+    bootstrapLogger.info('Starting CronScheduler');
+    await cronScheduler.start();
+  } else {
+    bootstrapLogger.info('No cron jobs found, skipping CronScheduler start');
+  }
+
   bootstrapLogger.info('Workflow daemon started successfully', { port });
 
   // Setup graceful shutdown
   const shutdown = async (signal: string) => {
     bootstrapLogger.warn('Received shutdown signal', { signal });
 
-    // Stop worker
+    // Stop cron scheduler first (prevent new jobs from being scheduled)
+    if (cronSchedulerInstance) {
+      await cronSchedulerInstance.stop();
+      cronSchedulerInstance = null;
+    }
+
+    // Stop worker (wait for in-flight jobs)
     if (workerInstance) {
       await workerInstance.stop();
       workerInstance = null;

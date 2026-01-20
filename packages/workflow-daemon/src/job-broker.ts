@@ -45,9 +45,11 @@ export class JobBroker {
     // Convert to WorkflowSpec
     const spec: WorkflowSpec = {
       name: `job-${request.handler}`,
+      version: '1.0.0',
+      on: { manual: true },
       jobs: {
         main: {
-          name: `job-${Date.now()}`,
+          runsOn: 'local',
           steps: [
             {
               id: 'execute',
