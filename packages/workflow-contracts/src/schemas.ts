@@ -164,6 +164,8 @@ export const WorkflowSpecSchema = z
 export const StepRunErrorSchema = z.object({
   message: z.string(),
   code: z.string().optional(),
+  stack: z.string().optional(),
+  timestamp: z.string().optional(),
   details: z.record(z.string(), z.unknown()).optional(),
 })
 
