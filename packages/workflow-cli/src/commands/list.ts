@@ -17,9 +17,50 @@ export default defineCommand({
       const flags = (input as any).flags ?? input;
       const outputJson = flags.json ?? false;
       const statusFilter = flags.status;
+      const typeFilter = flags.type;
 
       try {
         const client = new WorkflowDaemonClient();
+
+        // Handle --type cron filter
+        if (typeFilter === 'cron') {
+          const result = await client.getCronJobs();
+
+          if (outputJson) {
+            ctx.ui?.json?.({ ok: true, data: result });
+          } else {
+            ctx.ui?.info?.(`Cron Jobs: ${result.total}`);
+            ctx.ui?.info?.(`Scheduler Running: ${result.running ? 'Yes' : 'No'}`);
+            ctx.ui?.info?.('');
+
+            if (result.cronJobs.length === 0) {
+              ctx.ui?.warn?.('No cron jobs found');
+              ctx.ui?.info?.('');
+              ctx.ui?.info?.('To add cron jobs:');
+              ctx.ui?.info?.('  1. Plugin manifests: Add "cron" section to manifest.ts');
+              ctx.ui?.info?.('  2. User YAML: Create .kb/jobs/*.yml files');
+            } else {
+              for (const job of result.cronJobs) {
+                ctx.ui?.info?.(`  ${job.id}`);
+                ctx.ui?.info?.(`    Source:   ${job.source}`);
+                ctx.ui?.info?.(`    Schedule: ${job.schedule} (${job.timezone || 'UTC'})`);
+                ctx.ui?.info?.(`    Priority: ${job.priority}`);
+                ctx.ui?.info?.(`    Enabled:  ${job.enabled ? 'Yes' : 'No'}`);
+                if (job.handler) {
+                  ctx.ui?.info?.(`    Handler:  ${job.handler}`);
+                }
+                if (job.workflowName) {
+                  ctx.ui?.info?.(`    Workflow: ${job.workflowName}`);
+                }
+                ctx.ui?.info?.('');
+              }
+            }
+          }
+
+          return { exitCode: 0 };
+        }
+
+        // Default: list active executions (runs)
         let executions = await client.getExecutions();
 
         // Filter by status if provided
@@ -52,7 +93,7 @@ export default defineCommand({
         if (outputJson) {
           ctx.ui?.json?.({ ok: false, error: message });
         } else {
-          ctx.ui?.error?.(`Failed to list executions: ${message}`);
+          ctx.ui?.error?.(`Failed to list: ${message}`);
           ctx.ui?.warn?.(`Make sure workflow daemon is running: kb-workflow`);
         }
 

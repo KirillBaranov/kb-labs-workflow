@@ -79,4 +79,20 @@ export class WorkflowDaemonClient {
     const data = await response.json();
     return data.data.executions;
   }
+
+  /**
+   * Get cron jobs
+   */
+  async getCronJobs(): Promise<{
+    cronJobs: any[];
+    total: number;
+    running: boolean;
+  }> {
+    const response = await fetch(`${this.baseUrl}/cron/jobs`);
+    if (!response.ok) {
+      throw new Error(`Failed to get cron jobs: ${response.statusText}`);
+    }
+    const data = await response.json();
+    return data.data;
+  }
 }
