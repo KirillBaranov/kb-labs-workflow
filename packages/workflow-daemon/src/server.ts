@@ -9,11 +9,13 @@ import type { WorkflowEngine } from '@kb-labs/workflow-engine';
 import type { ILogger } from '@kb-labs/core-platform';
 import type { JobBroker } from './job-broker.js';
 import type { CronScheduler } from './cron-scheduler.js';
+import type { CronDiscovery } from './cron-discovery.js';
 
 export interface CreateServerOptions {
   engine: WorkflowEngine;
   jobBroker: JobBroker;
   cronScheduler?: CronScheduler;
+  cronDiscovery?: CronDiscovery;
   logger: ILogger;
 }
 
@@ -22,7 +24,7 @@ export interface CreateServerOptions {
  * Provides endpoints for job management and monitoring.
  */
 export async function createServer(options: CreateServerOptions) {
-  const { engine, jobBroker, cronScheduler, logger } = options;
+  const { engine, jobBroker, cronScheduler, cronDiscovery, logger } = options;
 
   const server = Fastify({
     logger: false, // Use platform logger instead
@@ -158,6 +160,52 @@ export async function createServer(options: CreateServerOptions) {
         running: cronScheduler.isSchedulerRunning(),
       },
     };
+  });
+
+  // Refresh cron jobs (reload from disk without daemon restart)
+  server.post('/cron/refresh', async () => {
+    if (!cronScheduler || !cronDiscovery) {
+      return {
+        ok: false,
+        error: 'CronScheduler or CronDiscovery not available',
+      };
+    }
+
+    try {
+      logger.info('Refreshing cron jobs from disk');
+
+      // Stop scheduler
+      const wasRunning = cronScheduler.isSchedulerRunning();
+      if (wasRunning) {
+        await cronScheduler.stop();
+      }
+
+      // Clear all jobs
+      cronScheduler.clearAll();
+
+      // Rediscover
+      const discovered = await cronDiscovery.discoverAll();
+      logger.info('Cron jobs rediscovered', discovered);
+
+      // Restart if was running
+      if (wasRunning && discovered.plugins + discovered.users > 0) {
+        await cronScheduler.start();
+      }
+
+      return {
+        ok: true,
+        data: {
+          discovered,
+          schedulerRestarted: wasRunning,
+        },
+      };
+    } catch (error) {
+      logger.error('Failed to refresh cron jobs', error instanceof Error ? error : undefined);
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   });
 
   return server;

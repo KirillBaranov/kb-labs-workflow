@@ -70,7 +70,19 @@ export async function createWorkflowWorker(
       return false; // No job available
     }
 
-    const { run, job } = entry;
+    // Get run and job from state store using IDs from queue entry
+    const run = await engine.getRun(entry.runId);
+    if (!run) {
+      logger.warn('Run not found for job entry', { runId: entry.runId, jobId: entry.jobId });
+      return true; // Entry was processed (but run missing)
+    }
+
+    const job = run.jobs.find(j => j.id === entry.jobId);
+    if (!job) {
+      logger.warn('Job not found in run', { runId: run.id, jobId: entry.jobId });
+      return true; // Entry was processed (but job missing)
+    }
+
     const jobKey = `${run.id}:${job.id}`;
 
     logger.info('Processing job', {
@@ -78,6 +90,9 @@ export async function createWorkflowWorker(
       jobId: job.id,
       jobName: job.jobName,
     });
+
+    // Debug: log the first step
+    console.log('🔍 JOB.STEPS[0]:', JSON.stringify(job.steps[0], null, 2));
 
     // Create job execution promise for graceful shutdown tracking
     const jobPromise = (async () => {
@@ -95,7 +110,7 @@ export async function createWorkflowWorker(
           });
 
           const result = await runner.execute({
-            spec: step,
+            spec: step.spec,  // Pass StepSpec, not StepRun
             context: {
               runId: run.id,
               jobId: job.id,
@@ -165,9 +180,14 @@ export async function createWorkflowWorker(
           await sleep(1000);
         }
       } catch (error) {
-        logger.error('Worker loop error', {
-          error: error instanceof Error ? error.message : String(error),
-        });
+        logger.error(
+          'Worker loop error',
+          error instanceof Error ? error : undefined,
+          {
+            errorMessage: error instanceof Error ? error.message : String(error),
+            errorStack: error instanceof Error ? error.stack : undefined,
+          },
+        );
         await sleep(5000); // Wait longer on error
       }
     }

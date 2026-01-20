@@ -100,6 +100,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   bootstrapLogger.info('Creating CronScheduler');
   const cronScheduler = new CronScheduler({
     jobBroker,
+    workflowEngine: engine,
     logger: platform.logger,
     timezone: process.env.WORKFLOW_CRON_TIMEZONE,
   });
@@ -107,12 +108,25 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   // Store cron scheduler instance for cleanup
   cronSchedulerInstance = cronScheduler;
 
-  // Create HTTP API server
+  // Discover cron jobs from plugin manifests and user YAML files (BEFORE HTTP server)
+  bootstrapLogger.info('Discovering cron jobs');
+  const cronDiscovery = new CronDiscovery({
+    cliApi,
+    scheduler: cronScheduler,
+    logger: platform.logger,
+    workspaceRoot: repoRoot,
+  });
+
+  const discovered = await cronDiscovery.discoverAll();
+  bootstrapLogger.info('Cron job discovery complete', discovered);
+
+  // Create HTTP API server (pass cronDiscovery for refresh endpoint)
   bootstrapLogger.info('Creating HTTP server');
   const server = await createServer({
     engine,
     jobBroker,
     cronScheduler,
+    cronDiscovery,
     logger: platform.logger,
   });
 
@@ -146,18 +160,6 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
       error: error instanceof Error ? error.message : String(error),
     });
   });
-
-  // Discover cron jobs from plugin manifests and user YAML files
-  bootstrapLogger.info('Discovering cron jobs');
-  const cronDiscovery = new CronDiscovery({
-    cliApi,
-    scheduler: cronScheduler,
-    logger: platform.logger,
-    workspaceRoot: repoRoot,
-  });
-
-  const discovered = await cronDiscovery.discoverAll();
-  bootstrapLogger.info('Cron job discovery complete', discovered);
 
   // Start cron scheduler
   if (discovered.plugins + discovered.users > 0) {

@@ -6,14 +6,17 @@
 import cron from 'node-cron';
 import type { ILogger } from '@kb-labs/core-platform';
 import type { JobBroker } from './job-broker.js';
+import type { WorkflowEngine } from '@kb-labs/workflow-engine';
 import type {
   RegisteredCronJob,
   PluginCronJob,
   UserCronJob,
+  WorkflowSpec,
 } from '@kb-labs/workflow-contracts';
 
 export interface CronSchedulerOptions {
   jobBroker: JobBroker;
+  workflowEngine: WorkflowEngine;
   logger: ILogger;
   timezone?: string;
 }
@@ -29,6 +32,7 @@ export interface CronSchedulerOptions {
  */
 export class CronScheduler {
   private readonly jobBroker: JobBroker;
+  private readonly workflowEngine: WorkflowEngine;
   private readonly logger: ILogger;
   private readonly defaultTimezone: string;
 
@@ -38,6 +42,7 @@ export class CronScheduler {
 
   constructor(options: CronSchedulerOptions) {
     this.jobBroker = options.jobBroker;
+    this.workflowEngine = options.workflowEngine;
     this.logger = options.logger;
     this.defaultTimezone = options.timezone ?? 'UTC';
   }
@@ -198,7 +203,7 @@ export class CronScheduler {
 
     try {
       if (job.source === 'plugin' && job.handler) {
-        // Plugin cron job - submit via handler
+        // Plugin cron job - submit via JobBroker
         const result = await this.jobBroker.submit({
           handler: job.handler,
           input: job.input,
@@ -216,17 +221,32 @@ export class CronScheduler {
           runId: result.id,
         });
       } else if (job.source === 'user' && job.workflowSpec) {
-        // User cron job - submit via workflow spec
-        // Convert user job to WorkflowSpec format
-        const handler = Object.keys(job.workflowSpec.jobs)[0];
-        if (!handler) {
-          throw new Error('User cron job has no jobs defined');
-        }
+        // User cron job - run workflow directly via WorkflowEngine
+        // Create complete WorkflowSpec from user job
+        const spec: WorkflowSpec = {
+          name: job.workflowSpec.name,
+          version: '1.0.0',
+          on: { manual: true }, // Cron-triggered workflows use manual trigger
+          jobs: job.workflowSpec.jobs,
+          env: job.workflowSpec.env,
+        };
 
-        const result = await this.jobBroker.submit({
-          handler: `workflow:${job.workflowSpec.name}`,
-          input: job.workflowSpec,
-          priority: job.priority,
+        // Debug: log the spec being passed
+        console.log('🔍 CRON SPEC:', JSON.stringify(spec, null, 2));
+        this.logger.debug('Running workflow from cron', {
+          cronJobId,
+          spec: JSON.stringify(spec, null, 2),
+        });
+
+        const result = await this.workflowEngine.runFromInline(spec, {
+          trigger: {
+            type: 'schedule',
+            payload: {
+              cronJobId,
+              scheduledAt: new Date().toISOString(),
+            },
+          },
+          env: job.workflowSpec.env ?? {},
           metadata: {
             ...job.metadata,
             cronJobId,
@@ -235,9 +255,10 @@ export class CronScheduler {
           },
         });
 
-        this.logger.info('Cron job submitted', {
+        this.logger.info('Cron workflow submitted', {
           cronJobId,
           runId: result.id,
+          workflowName: spec.name,
         });
       } else {
         throw new Error(`Invalid cron job configuration: ${cronJobId}`);
@@ -270,5 +291,18 @@ export class CronScheduler {
    */
   isSchedulerRunning(): boolean {
     return this.isRunning;
+  }
+
+  /**
+   * Clear all registered cron jobs.
+   * IMPORTANT: This does NOT stop scheduled tasks - call stop() first if needed.
+   */
+  clearAll(): void {
+    this.logger.info('Clearing all registered cron jobs', {
+      count: this.registeredJobs.size,
+    });
+
+    this.registeredJobs.clear();
+    // Note: scheduledTasks are cleared in stop()
   }
 }
