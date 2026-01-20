@@ -24,26 +24,30 @@ export default defineCommand({
         if (outputJson) {
           ctx.ui?.json?.({ ok: true, data: metrics });
         } else {
-          ctx.ui?.info?.('Workflow Metrics:');
-          ctx.ui?.info?.('');
+          const runsItems = [
+            `Total: ${metrics.runs.total}`,
+            `Queued: ${metrics.runs.queued}`,
+            `Running: ${metrics.runs.running}`,
+            `Completed: ${metrics.runs.completed}`,
+            `Failed: ${metrics.runs.failed}`,
+            `Cancelled: ${metrics.runs.cancelled}`,
+          ];
 
-          // Runs metrics
-          ctx.ui?.info?.(`Runs:`);
-          ctx.ui?.info?.(`  Total: ${metrics.runs.total}`);
-          ctx.ui?.info?.(`  Queued: ${metrics.runs.queued}`);
-          ctx.ui?.info?.(`  Running: ${metrics.runs.running}`);
-          ctx.ui?.info?.(`  Completed: ${metrics.runs.completed}`);
-          ctx.ui?.info?.(`  Failed: ${metrics.runs.failed}`);
-          ctx.ui?.info?.(`  Cancelled: ${metrics.runs.cancelled}`);
-          ctx.ui?.info?.('');
+          const jobsItems = [
+            `Total: ${metrics.jobs.total}`,
+            `Queued: ${metrics.jobs.queued}`,
+            `Running: ${metrics.jobs.running}`,
+            `Completed: ${metrics.jobs.completed}`,
+            `Failed: ${metrics.jobs.failed}`,
+          ];
 
-          // Jobs metrics
-          ctx.ui?.info?.(`Jobs:`);
-          ctx.ui?.info?.(`  Total: ${metrics.jobs.total}`);
-          ctx.ui?.info?.(`  Queued: ${metrics.jobs.queued}`);
-          ctx.ui?.info?.(`  Running: ${metrics.jobs.running}`);
-          ctx.ui?.info?.(`  Completed: ${metrics.jobs.completed}`);
-          ctx.ui?.info?.(`  Failed: ${metrics.jobs.failed}`);
+          ctx.ui?.success?.('Workflow Metrics', {
+            title: 'Workflow Daemon',
+            sections: [
+              { header: 'Runs', items: runsItems },
+              { header: 'Jobs', items: jobsItems },
+            ],
+          });
         }
 
         return { exitCode: 0 };

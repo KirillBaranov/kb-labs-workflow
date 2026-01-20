@@ -35,12 +35,17 @@ export default defineCommand({
         if (outputJson) {
           ctx.ui?.json?.({ ok: true, data: status });
         } else {
-          ctx.ui?.info?.(`Job Status: ${jobId}`);
-          ctx.ui?.info?.('');
-          ctx.ui?.info?.(`  ID: ${status.id}`);
-          ctx.ui?.info?.(`  Status: ${status.status}`);
-          ctx.ui?.info?.(`  Started: ${status.startedAt || 'N/A'}`);
-          ctx.ui?.info?.(`  Finished: ${status.finishedAt || 'N/A'}`);
+          const statusItems = [
+            `ID: ${status.id}`,
+            `Status: ${status.status}`,
+            `Started: ${status.startedAt || 'N/A'}`,
+            `Finished: ${status.finishedAt || 'N/A'}`,
+          ];
+
+          ctx.ui?.success?.('Job Status Retrieved', {
+            title: 'Workflow Job',
+            sections: [{ header: 'Details', items: statusItems }],
+          });
         }
 
         return { exitCode: 0 };

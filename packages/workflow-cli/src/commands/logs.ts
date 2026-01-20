@@ -35,16 +35,21 @@ export default defineCommand({
         if (outputJson) {
           ctx.ui?.json?.({ ok: true, data: { logs } });
         } else {
-          ctx.ui?.info?.(`Logs for job: ${jobId}`);
-          ctx.ui?.info?.('');
-
           if (logs.length === 0) {
             ctx.ui?.warn?.('No logs available (platform.logger integration pending)');
           } else {
-            for (const log of logs) {
+            const logItems = logs.map(log => {
               const level = log.level?.toUpperCase() || 'INFO';
-              ctx.ui?.info?.(`[${level}] ${log.message}`);
-            }
+              return `[${level}] ${log.message}`;
+            });
+
+            ctx.ui?.success?.('Job Logs Retrieved', {
+              title: 'Workflow Job',
+              sections: [
+                { header: 'Job ID', items: [jobId] },
+                { header: 'Logs', items: logItems },
+              ],
+            });
           }
         }
 

@@ -29,10 +29,6 @@ export default defineCommand({
           if (outputJson) {
             ctx.ui?.json?.({ ok: true, data: result });
           } else {
-            ctx.ui?.info?.(`Cron Jobs: ${result.total}`);
-            ctx.ui?.info?.(`Scheduler Running: ${result.running ? 'Yes' : 'No'}`);
-            ctx.ui?.info?.('');
-
             if (result.cronJobs.length === 0) {
               ctx.ui?.warn?.('No cron jobs found');
               ctx.ui?.info?.('');
@@ -40,20 +36,35 @@ export default defineCommand({
               ctx.ui?.info?.('  1. Plugin manifests: Add "cron" section to manifest.ts');
               ctx.ui?.info?.('  2. User YAML: Create .kb/jobs/*.yml files');
             } else {
-              for (const job of result.cronJobs) {
-                ctx.ui?.info?.(`  ${job.id}`);
-                ctx.ui?.info?.(`    Source:   ${job.source}`);
-                ctx.ui?.info?.(`    Schedule: ${job.schedule} (${job.timezone || 'UTC'})`);
-                ctx.ui?.info?.(`    Priority: ${job.priority}`);
-                ctx.ui?.info?.(`    Enabled:  ${job.enabled ? 'Yes' : 'No'}`);
+              // Build job details
+              const jobItems = result.cronJobs.map(job => {
+                const parts = [
+                  `ID: ${job.id}`,
+                  `Schedule: ${job.schedule} (${job.timezone || 'UTC'})`,
+                  `Priority: ${job.priority}`,
+                  `Enabled: ${job.enabled ? 'Yes' : 'No'}`,
+                ];
                 if (job.handler) {
-                  ctx.ui?.info?.(`    Handler:  ${job.handler}`);
+                  parts.push(`Handler: ${job.handler}`);
                 }
                 if (job.workflowName) {
-                  ctx.ui?.info?.(`    Workflow: ${job.workflowName}`);
+                  parts.push(`Workflow: ${job.workflowName}`);
                 }
-                ctx.ui?.info?.('');
-              }
+                return parts.join(' | ');
+              });
+
+              const summaryItems = [
+                `Total Jobs: ${result.total}`,
+                `Scheduler: ${result.running ? 'Running' : 'Stopped'}`,
+              ];
+
+              ctx.ui?.success?.('Cron Jobs', {
+                title: 'Workflow Scheduler',
+                sections: [
+                  { header: 'Summary', items: summaryItems },
+                  { header: 'Registered Jobs', items: jobItems },
+                ],
+              });
             }
           }
 
@@ -71,18 +82,30 @@ export default defineCommand({
         if (outputJson) {
           ctx.ui?.json?.({ ok: true, data: { executions } });
         } else {
-          ctx.ui?.info?.(`Active Executions: ${executions.length}`);
-          ctx.ui?.info?.('');
-
           if (executions.length === 0) {
             ctx.ui?.warn?.('No active executions found');
           } else {
-            for (const exec of executions) {
-              ctx.ui?.info?.(`  ID: ${exec.id}`);
-              ctx.ui?.info?.(`    Status: ${exec.status}`);
-              ctx.ui?.info?.(`    Started: ${exec.startedAt || 'N/A'}`);
-              ctx.ui?.info?.('');
-            }
+            const executionItems = executions.map(exec => {
+              const parts = [
+                `ID: ${exec.id}`,
+                `Status: ${exec.status}`,
+                `Started: ${exec.startedAt || 'N/A'}`,
+              ];
+              return parts.join(' | ');
+            });
+
+            const summaryItems = [
+              `Total Executions: ${executions.length}`,
+              statusFilter ? `Filter: ${statusFilter}` : undefined,
+            ].filter(Boolean) as string[];
+
+            ctx.ui?.success?.('Active Workflow Executions', {
+              title: 'Workflow Engine',
+              sections: [
+                { header: 'Summary', items: summaryItems },
+                { header: 'Executions', items: executionItems },
+              ],
+            });
           }
         }
 

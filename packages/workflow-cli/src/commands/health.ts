@@ -24,8 +24,15 @@ export default defineCommand({
         if (outputJson) {
           ctx.ui?.json?.({ ok: true, data: health });
         } else {
-          ctx.ui?.success?.(`Workflow daemon is healthy`);
-          ctx.ui?.info?.(`Service: ${health.service}`);
+          ctx.ui?.success?.('Daemon is healthy', {
+            title: 'Workflow Daemon',
+            sections: [
+              {
+                header: 'Status',
+                items: [`Service: ${health.service}`, 'Health: OK'],
+              },
+            ],
+          });
         }
 
         return { exitCode: 0 };
