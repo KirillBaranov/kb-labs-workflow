@@ -81,9 +81,38 @@ export const listFlags = defineFlags({
   },
 });
 
+/**
+ * Flags for workflow:run command
+ */
+export const runFlags = defineFlags({
+  json: {
+    type: 'boolean',
+    description: 'Output result as JSON',
+    default: false,
+  },
+  handler: {
+    type: 'string',
+    description: 'Plugin handler to run (e.g., "mind:rag-query")',
+  },
+  input: {
+    type: 'string',
+    description: 'JSON string of input parameters',
+  },
+  priority: {
+    type: 'number',
+    description: 'Job priority (1-10, default: 5)',
+  },
+  wait: {
+    type: 'boolean',
+    description: 'Wait for job completion',
+    default: false,
+  },
+});
+
 // Type exports for use in command handlers
 export type StatusFlags = typeof statusFlags.type;
 export type LogsFlags = typeof logsFlags.type;
 export type MetricsFlags = typeof metricsFlags.type;
 export type HealthFlags = typeof healthFlags.type;
 export type ListFlags = typeof listFlags.type;
+export type RunFlags = typeof runFlags.type;
