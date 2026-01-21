@@ -17,7 +17,13 @@
  */
 
 import type { CliAPI } from '@kb-labs/cli-api';
-import type { ManifestV3, WorkflowHandlerDecl, JobDecl, PlatformServices } from '@kb-labs/plugin-contracts';
+import type {
+  ManifestV3,
+  WorkflowHandlerDecl,
+  JobHandlerDecl,
+  CronDecl,
+  PlatformServices
+} from '@kb-labs/plugin-contracts';
 
 /**
  * Workflow trigger type
@@ -168,7 +174,7 @@ export class ManifestScanner {
   }
 
   /**
-   * Scan specific plugin for workflows and jobs.
+   * Scan specific plugin for workflows, jobs, and cron schedules.
    */
   scanPlugin(pluginId: string, manifest: ManifestV3, pluginRoot: string): WorkflowRuntime[] {
     const workflows: WorkflowRuntime[] = [];
@@ -179,11 +185,20 @@ export class ManifestScanner {
       workflows.push(this.convertWorkflowHandler(pluginId, handler, pluginRoot));
     }
 
-    // 2. Scan jobs
-    const jobs = manifest.jobs ?? [];
-    for (const job of jobs) {
-      workflows.push(this.convertJob(pluginId, job, pluginRoot));
+    // 2. Scan job handlers (background tasks, invoked on-demand)
+    const jobHandlers = manifest.jobs?.handlers ?? [];
+    for (const handler of jobHandlers) {
+      workflows.push(this.convertJobHandler(pluginId, handler, pluginRoot));
     }
+
+    // 3. Scan cron schedules (recurring tasks on schedule)
+    const cronSchedules = manifest.cron?.schedules ?? [];
+    for (const schedule of cronSchedules) {
+      workflows.push(this.convertCronSchedule(pluginId, schedule, pluginRoot));
+    }
+
+    // 4. Legacy: Support old manifest.jobs format (deprecated)
+    // NOTE: Removed legacy jobs support - use cron schedules instead
 
     return workflows;
   }
@@ -218,48 +233,110 @@ export class ManifestScanner {
   }
 
   /**
-   * Convert job declaration to WorkflowRuntime.
+   * Convert job handler declaration to WorkflowRuntime.
    */
-  private convertJob(
+  private convertJobHandler(
     pluginId: string,
-    job: JobDecl,
+    handler: JobHandlerDecl,
     pluginRoot: string
   ): WorkflowRuntime {
-    const id = `${pluginId}/${job.id}`;
-
-    const triggers: WorkflowTrigger[] = [
-      { type: 'manual' }, // Jobs can be triggered manually
-    ];
-
-    // Add schedule trigger if schedule is defined
-    let schedule: WorkflowSchedule | undefined;
-    if (job.schedule) {
-      triggers.push({
-        type: 'schedule',
-        config: { cron: job.schedule },
-      });
-
-      schedule = {
-        cron: job.schedule,
-        enabled: job.enabled ?? true,
-      };
-    }
+    const id = `${pluginId}:job:${handler.id}`;
 
     return {
       id,
       source: 'manifest',
       pluginId,
       manifestPath: pluginRoot,
-      name: job.describe ?? job.id,
-      description: job.describe,
-      tags: job.tags ?? ['plugin', pluginId],
-      triggers,
-      handler: job.handler,
-      schedule,
-      status: (job.enabled ?? true) ? 'active' : 'disabled',
-      permissions: job.permissions,
-      input: job.input,
+      name: handler.describe ?? handler.id,
+      description: handler.describe,
+      tags: ['plugin', 'job', pluginId],
+      triggers: [
+        { type: 'manual' }, // Job handlers are invoked on-demand via ctx.api.jobs.submit()
+      ],
+      handler: handler.handler,
+      status: 'active',
+      permissions: handler.permissions,
+      input: handler.input,
+      output: handler.output,
     };
+  }
+
+  /**
+   * Convert cron schedule declaration to WorkflowRuntime.
+   */
+  private convertCronSchedule(
+    pluginId: string,
+    cronDecl: CronDecl,
+    pluginRoot: string
+  ): WorkflowRuntime {
+    const id = `${pluginId}:cron:${cronDecl.id}`;
+
+    const schedule: WorkflowSchedule = {
+      cron: cronDecl.schedule,
+      enabled: cronDecl.enabled ?? true,
+    };
+
+    return {
+      id,
+      source: 'manifest',
+      pluginId,
+      manifestPath: pluginRoot,
+      name: cronDecl.describe ?? cronDecl.id,
+      description: cronDecl.describe,
+      tags: ['plugin', 'cron', pluginId],
+      triggers: [
+        {
+          type: 'schedule',
+          config: { cron: cronDecl.schedule, timezone: cronDecl.timezone },
+        },
+      ],
+      // Note: Cron schedules reference a job type to execute
+      // The actual handler path comes from the job declaration
+      handler: undefined, // Will be resolved at execution time via job type
+      schedule,
+      status: (cronDecl.enabled ?? true) ? 'active' : 'disabled',
+      permissions: cronDecl.permissions,
+    };
+  }
+
+  // Legacy convertLegacyJob method removed - use cron schedules instead
+
+  /**
+   * Scan all installed plugins for job handlers only.
+   *
+   * Returns information needed to register handlers in JobManager.
+   */
+  async scanJobHandlers(): Promise<Array<{
+    pluginId: string;
+    pluginVersion: string;
+    pluginRoot: string;
+    handler: JobHandlerDecl;
+  }>> {
+    const snapshot = this.cliApi.snapshot();
+    const jobHandlers: Array<{
+      pluginId: string;
+      pluginVersion: string;
+      pluginRoot: string;
+      handler: JobHandlerDecl;
+    }> = [];
+
+    for (const entry of snapshot.manifests ?? []) {
+      const handlers = entry.manifest.jobs?.handlers ?? [];
+      for (const handler of handlers) {
+        jobHandlers.push({
+          pluginId: entry.pluginId,
+          pluginVersion: entry.manifest.version,
+          pluginRoot: entry.pluginRoot,
+          handler,
+        });
+      }
+    }
+
+    this.platform.logger?.debug('ManifestScanner: Discovered job handlers', {
+      count: jobHandlers.length,
+    });
+
+    return jobHandlers;
   }
 
   /**

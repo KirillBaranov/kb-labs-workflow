@@ -384,6 +384,13 @@ export class WorkflowEngine {
   private async moveToDLQ(runId: string, jobId: string, error: Error): Promise<void> {
     this.logger.warn('Job moved to DLQ after max retries', { runId, jobId })
 
+    // Update run status to 'dlq'
+    await this.stateStore.updateRun(runId, (draft) => {
+      draft.status = 'dlq'
+      draft.error = error.message
+      draft.finishedAt = new Date().toISOString()
+    })
+
     // Store in cache with DLQ prefix
     const dlqKey = `workflow:dlq:${runId}:${jobId}`
     const run = await this.stateStore.getRun(runId)
@@ -404,6 +411,12 @@ export class WorkflowEngine {
       }),
       7 * 24 * 60 * 60 * 1000 // TTL 7 days
     )
+
+    // Publish event
+    const updatedRun = await this.stateStore.getRun(runId)
+    if (updatedRun) {
+      await this.publishRunEvent(EVENT_NAMES.run.failed, updatedRun)
+    }
   }
 
   async updateRun(
@@ -615,6 +628,27 @@ export class WorkflowEngine {
   }
 
   /**
+   * Get all workflow runs (all statuses).
+   * Returns array of all WorkflowRun objects ordered by creation time.
+   */
+  async getAllRuns(): Promise<WorkflowRun[]> {
+    const runs: WorkflowRun[] = []
+
+    // Get all run IDs from sorted set index
+    const runIds = await this.stateStore.getAllRunIds()
+
+    // Fetch all runs
+    for (const runId of runIds) {
+      const run = await this.stateStore.getRun(runId)
+      if (run) {
+        runs.push(run)
+      }
+    }
+
+    return runs
+  }
+
+  /**
    * Get workflow engine metrics.
    * Returns statistics about runs, jobs, and system health.
    */
@@ -626,6 +660,7 @@ export class WorkflowEngine {
       completed: number
       failed: number
       cancelled: number
+      dlq: number
     }
     jobs: {
       total: number
@@ -646,6 +681,7 @@ export class WorkflowEngine {
         completed: 0,
         failed: 0,
         cancelled: 0,
+        dlq: 0,
       },
       jobs: {
         total: 0,
@@ -669,6 +705,7 @@ export class WorkflowEngine {
       else if (run.status === 'success') metrics.runs.completed++
       else if (run.status === 'failed') metrics.runs.failed++
       else if (run.status === 'cancelled') metrics.runs.cancelled++
+      else if (run.status === 'dlq') metrics.runs.dlq++
 
       // Count job statuses
       for (const job of run.jobs) {
