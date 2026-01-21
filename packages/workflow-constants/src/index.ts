@@ -1,4 +1,4 @@
-const RUN_STATES = ['queued', 'running', 'success', 'failed', 'cancelled', 'skipped'] as const
+const RUN_STATES = ['queued', 'running', 'success', 'failed', 'cancelled', 'skipped', 'dlq'] as const
 const JOB_STATES = ['queued', 'running', 'success', 'failed', 'cancelled', 'skipped', 'interrupted'] as const
 const STEP_STATES = RUN_STATES
 const JOB_PRIORITIES = ['high', 'normal', 'low'] as const
