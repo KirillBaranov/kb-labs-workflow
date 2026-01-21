@@ -10,6 +10,8 @@ import type { ILogger } from '@kb-labs/core-platform';
 import type { JobBroker } from './job-broker.js';
 import type { CronScheduler } from './cron-scheduler.js';
 import type { CronDiscovery } from './cron-discovery.js';
+import { registerJobsAPI } from './api/jobs-api.js';
+import { registerCronAPI } from './api/cron-api.js';
 
 export interface CreateServerOptions {
   engine: WorkflowEngine;
@@ -35,6 +37,20 @@ export async function createServer(options: CreateServerOptions) {
     origin: true,
   });
 
+  // Register REST API routes
+  registerJobsAPI({
+    server,
+    jobBroker,
+    engine,
+    logger,
+  });
+
+  registerCronAPI({
+    server,
+    cronScheduler,
+    logger,
+  });
+
   // Health check
   server.get('/health', async () => {
     return { ok: true, service: 'workflow-daemon' };
@@ -49,7 +65,10 @@ export async function createServer(options: CreateServerOptions) {
     };
   });
 
-  // Job status
+  // Legacy endpoints (kept for backward compatibility)
+  // TODO: Deprecate these in favor of /api/* endpoints
+
+  // Job status (legacy)
   server.get<{ Params: { id: string } }>('/jobs/:id/status', async (request, reply) => {
     const { id } = request.params;
     const run = await engine.getRun(id);
@@ -96,7 +115,7 @@ export async function createServer(options: CreateServerOptions) {
     };
   });
 
-  // Submit job (POST)
+  // Submit job (legacy - use POST /api/jobs instead)
   server.post<{ Body: { handler: string; input?: unknown; priority?: number } }>(
     '/jobs/submit',
     async (request, reply) => {
