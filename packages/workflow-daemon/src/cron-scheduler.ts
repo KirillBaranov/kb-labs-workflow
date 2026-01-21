@@ -19,6 +19,8 @@ export interface CronSchedulerOptions {
   workflowEngine: WorkflowEngine;
   logger: ILogger;
   timezone?: string;
+  /** Platform analytics adapter (OPTIONAL) */
+  analytics?: import('@kb-labs/core-platform').IAnalytics;
 }
 
 /**
@@ -35,6 +37,7 @@ export class CronScheduler {
   private readonly workflowEngine: WorkflowEngine;
   private readonly logger: ILogger;
   private readonly defaultTimezone: string;
+  private readonly analytics?: import('@kb-labs/core-platform').IAnalytics;
 
   private readonly registeredJobs = new Map<string, RegisteredCronJob>();
   private readonly scheduledTasks = new Map<string, cron.ScheduledTask>();
@@ -45,6 +48,7 @@ export class CronScheduler {
     this.workflowEngine = options.workflowEngine;
     this.logger = options.logger;
     this.defaultTimezone = options.timezone ?? 'UTC';
+    this.analytics = options.analytics;
   }
 
   /**
@@ -166,6 +170,12 @@ export class CronScheduler {
     this.logger.info('CronScheduler started', {
       scheduledJobs: this.scheduledTasks.size,
     });
+
+    // Track scheduler start
+    this.analytics?.track('workflow.cron.scheduler.started', {
+      totalJobs: this.registeredJobs.size,
+      scheduledJobs: this.scheduledTasks.size,
+    }).catch(() => {});
   }
 
   /**
@@ -186,10 +196,16 @@ export class CronScheduler {
       this.logger.debug('Cron job stopped', { cronJobId });
     }
 
+    const stoppedCount = this.scheduledTasks.size;
     this.scheduledTasks.clear();
     this.isRunning = false;
 
     this.logger.info('CronScheduler stopped');
+
+    // Track scheduler stop
+    this.analytics?.track('workflow.cron.scheduler.stopped', {
+      stoppedJobs: stoppedCount,
+    }).catch(() => {});
   }
 
   /**
@@ -199,7 +215,15 @@ export class CronScheduler {
     cronJobId: string,
     job: RegisteredCronJob
   ): Promise<void> {
+    const startTime = Date.now();
     this.logger.info('Executing cron job', { cronJobId });
+
+    // Track cron job start
+    this.analytics?.track('workflow.cron.job.started', {
+      cronJobId,
+      source: job.source,
+      schedule: job.schedule,
+    }).catch(() => {});
 
     try {
       if (job.source === 'plugin' && job.handler) {
@@ -263,12 +287,29 @@ export class CronScheduler {
       } else {
         throw new Error(`Invalid cron job configuration: ${cronJobId}`);
       }
+
+      // Track successful cron job completion
+      const duration = Date.now() - startTime;
+      this.analytics?.track('workflow.cron.job.completed', {
+        cronJobId,
+        source: job.source,
+        durationMs: duration,
+      }).catch(() => {});
     } catch (error) {
+      const duration = Date.now() - startTime;
       this.logger.error(
         'Failed to execute cron job',
         error instanceof Error ? error : undefined,
         { cronJobId }
       );
+
+      // Track cron job failure
+      this.analytics?.track('workflow.cron.job.failed', {
+        cronJobId,
+        source: job.source,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        durationMs: duration,
+      }).catch(() => {});
     }
   }
 

@@ -16,6 +16,8 @@ export interface CreateWorkflowWorkerOptions {
   logger: ILogger;
   workspaceRoot: string;
   concurrency?: number;
+  /** Platform analytics adapter (OPTIONAL) */
+  analytics?: import('@kb-labs/core-platform').IAnalytics;
 }
 
 export interface WorkflowWorker {
@@ -37,6 +39,7 @@ export async function createWorkflowWorker(
     logger,
     workspaceRoot,
     concurrency = 5,
+    analytics,
   } = options;
 
   let isRunning = false;
@@ -84,12 +87,21 @@ export async function createWorkflowWorker(
     }
 
     const jobKey = `${run.id}:${job.id}`;
+    const jobStartTime = Date.now();
 
     logger.info('Processing job', {
       runId: run.id,
       jobId: job.id,
       jobName: job.jobName,
     });
+
+    // Track job processing started
+    analytics?.track('workflow.worker.job.started', {
+      runId: run.id,
+      jobId: job.id,
+      jobName: job.jobName,
+      stepCount: job.steps.length,
+    }).catch(() => {});
 
     // Debug: log the first step
     console.log('🔍 JOB.STEPS[0]:', JSON.stringify(job.steps[0], null, 2));
@@ -143,15 +155,35 @@ export async function createWorkflowWorker(
         // Mark job as completed
         await engine.markJobCompleted(run.id, job.id);
 
+        const jobDuration = Date.now() - jobStartTime;
         logger.info('Job completed successfully', {
           runId: run.id,
           jobId: job.id,
         });
+
+        // Track job processing completed
+        analytics?.track('workflow.worker.job.completed', {
+          runId: run.id,
+          jobId: job.id,
+          jobName: job.jobName,
+          durationMs: jobDuration,
+          stepCount: job.steps.length,
+        }).catch(() => {});
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
+        const jobDuration = Date.now() - jobStartTime;
 
         // Mark job as failed (will retry if configured)
         await engine.markJobFailed(run.id, job.id, err, true);
+
+        // Track job processing failed
+        analytics?.track('workflow.worker.job.failed', {
+          runId: run.id,
+          jobId: job.id,
+          jobName: job.jobName,
+          errorMessage: err.message,
+          durationMs: jobDuration,
+        }).catch(() => {});
       } finally {
         // Remove from tracking
         runningJobs.delete(jobKey);
@@ -205,6 +237,11 @@ export async function createWorkflowWorker(
       logger.info('Starting workflow worker', { concurrency });
       isRunning = true;
       stopRequested = false;
+
+      // Track worker start
+      analytics?.track('workflow.worker.started', {
+        concurrency,
+      }).catch(() => {});
 
       // Start multiple worker loops for concurrency
       const promises: Promise<void>[] = [];
@@ -269,6 +306,12 @@ export async function createWorkflowWorker(
       }
 
       logger.info('Workflow worker stopped');
+
+      // Track worker stop
+      analytics?.track('workflow.worker.stopped', {
+        gracefulShutdown: runningJobs.size === 0,
+        interruptedJobs: runningJobs.size,
+      }).catch(() => {});
     },
   };
 }
