@@ -34,6 +34,8 @@ export interface WorkflowEngineOptions {
   events?: import('@kb-labs/core-platform').IEventBus
   /** Platform logger (REQUIRED) */
   logger?: import('@kb-labs/core-platform').ILogger
+  /** Platform analytics adapter (OPTIONAL) */
+  analytics?: import('@kb-labs/core-platform').IAnalytics
   /** Platform execution backend (OPTIONAL - for plugin step execution) */
   executionBackend?: import('@kb-labs/plugin-execution').ExecutionBackend
 }
@@ -43,6 +45,7 @@ export class WorkflowEngine {
   readonly maxWorkflowDepth: number
 
   private readonly logger: EngineLogger
+  private readonly analytics?: import('@kb-labs/core-platform').IAnalytics
   private readonly stateStore: StateStore
   private readonly concurrency: ConcurrencyManager
   private readonly runCoordinator: RunCoordinator
@@ -72,6 +75,7 @@ export class WorkflowEngine {
     }
 
     this.logger = options.logger
+    this.analytics = options.analytics
 
     this.stateStore = new StateStore(options.cache, this.logger)
     this.concurrency = new ConcurrencyManager(
@@ -99,7 +103,18 @@ export class WorkflowEngine {
   }
 
   async createRun(input: CreateRunInput): Promise<WorkflowRun> {
+    const startTime = Date.now()
     const run = await this.runCoordinator.ensureRun(input)
+
+    // Track workflow run creation
+    this.analytics?.track('workflow.run.created', {
+      runId: run.id,
+      name: run.name,
+      version: run.version,
+      jobCount: run.jobs.length,
+      trigger: input.trigger?.type,
+    }).catch(() => {}) // Silent fail for analytics
+
     await this.events.publish({
       type: EVENT_NAMES.run.created,
       runId: run.id,
@@ -110,6 +125,7 @@ export class WorkflowEngine {
       },
     })
     await this.scheduler.scheduleRun(run)
+
     return run
   }
 
@@ -144,11 +160,20 @@ export class WorkflowEngine {
   }
 
   async cancelRun(runId: string): Promise<void> {
+    const run = await this.getRun(runId)
+
     await this.stateStore.updateRun(runId, (draft) => {
       draft.status = 'cancelled'
       draft.finishedAt = new Date().toISOString()
       return draft
     })
+
+    // Track workflow cancellation
+    this.analytics?.track('workflow.run.cancelled', {
+      runId,
+      name: run?.name,
+      reason: 'cancelled by parent workflow',
+    }).catch(() => {})
 
     await this.events.publish({
       type: EVENT_NAMES.run.cancelled,
@@ -196,6 +221,16 @@ export class WorkflowEngine {
       jobId,
       attempt: (job.attempt || 0) + 1,
     })
+
+    // Track job failure
+    this.analytics?.track('workflow.job.failed', {
+      runId,
+      jobId,
+      jobName: job.jobName,
+      attempt: (job.attempt || 0) + 1,
+      errorMessage: error.message,
+      willRetry: shouldRetry && this.shouldRetryJob(job),
+    }).catch(() => {})
 
     // Check if should retry
     if (shouldRetry && this.shouldRetryJob(job)) {
@@ -249,12 +284,26 @@ export class WorkflowEngine {
    * Mark job as completed successfully.
    */
   async markJobCompleted(runId: string, jobId: string): Promise<void> {
+    const run = await this.getRun(runId)
+    const job = run?.jobs.find((j) => j.id === jobId)
+    const startTime = job?.startedAt ? new Date(job.startedAt).getTime() : Date.now()
+    const duration = Date.now() - startTime
+
     await this.stateStore.updateJob(runId, jobId, (draft) => {
       draft.status = 'success'
       draft.finishedAt = new Date().toISOString()
     })
 
     this.logger.info('Job completed successfully', { runId, jobId })
+
+    // Track job completion
+    this.analytics?.track('workflow.job.completed', {
+      runId,
+      jobId,
+      jobName: job?.jobName,
+      durationMs: duration,
+      stepCount: job?.steps.length ?? 0,
+    }).catch(() => {})
   }
 
   /**
