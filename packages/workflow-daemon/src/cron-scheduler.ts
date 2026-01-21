@@ -150,13 +150,11 @@ export class CronScheduler {
         job.schedule,
         () => this.executeCronJob(cronJobId, job),
         {
-          scheduled: false, // Don't start immediately, we call .start() manually
           timezone: job.timezone,
         }
       );
 
       this.scheduledTasks.set(cronJobId, task);
-      task.start();
 
       this.logger.info('Cron job scheduled', {
         cronJobId,
@@ -332,6 +330,140 @@ export class CronScheduler {
    */
   isSchedulerRunning(): boolean {
     return this.isRunning;
+  }
+
+  /**
+   * Register cron job (generic method for API usage).
+   * Supports both plugin and API-registered jobs.
+   */
+  register(job: RegisteredCronJob): void {
+    if (this.registeredJobs.has(job.id)) {
+      this.logger.warn('Cron job already registered, overwriting', { cronJobId: job.id });
+    }
+
+    this.registeredJobs.set(job.id, job);
+    this.logger.debug('Cron job registered', {
+      cronJobId: job.id,
+      schedule: job.schedule,
+      source: job.source,
+    });
+
+    // If scheduler is already running, schedule this job immediately
+    if (this.isRunning && job.enabled) {
+      this.scheduleJob(job.id, job);
+    }
+  }
+
+  /**
+   * Unregister cron job by ID.
+   * Stops the scheduled task if running.
+   */
+  unregister(cronJobId: string): void {
+    const job = this.registeredJobs.get(cronJobId);
+    if (!job) {
+      this.logger.warn('Cron job not found for unregister', { cronJobId });
+      return;
+    }
+
+    // Stop scheduled task if exists
+    const task = this.scheduledTasks.get(cronJobId);
+    if (task) {
+      task.stop();
+      this.scheduledTasks.delete(cronJobId);
+      this.logger.debug('Cron task stopped', { cronJobId });
+    }
+
+    // Remove from registered jobs
+    this.registeredJobs.delete(cronJobId);
+    this.logger.info('Cron job unregistered', { cronJobId });
+  }
+
+  /**
+   * Pause cron job (stop task but keep registration).
+   */
+  pause(cronJobId: string): void {
+    const job = this.registeredJobs.get(cronJobId);
+    if (!job) {
+      throw new Error(`Cron job not found: ${cronJobId}`);
+    }
+
+    const task = this.scheduledTasks.get(cronJobId);
+    if (!task) {
+      throw new Error(`Cron task not scheduled: ${cronJobId}`);
+    }
+
+    task.stop();
+    job.enabled = false;
+    this.logger.info('Cron job paused', { cronJobId });
+  }
+
+  /**
+   * Resume cron job (restart stopped task).
+   */
+  resume(cronJobId: string): void {
+    const job = this.registeredJobs.get(cronJobId);
+    if (!job) {
+      throw new Error(`Cron job not found: ${cronJobId}`);
+    }
+
+    const task = this.scheduledTasks.get(cronJobId);
+    if (!task) {
+      // Job exists but not scheduled - schedule it now
+      if (this.isRunning) {
+        this.scheduleJob(cronJobId, job);
+      }
+    } else {
+      // Task exists but stopped - restart it
+      task.start();
+    }
+
+    job.enabled = true;
+    this.logger.info('Cron job resumed', { cronJobId });
+  }
+
+  /**
+   * Trigger cron job immediately (manual execution).
+   */
+  async triggerNow(cronJobId: string): Promise<void> {
+    const job = this.registeredJobs.get(cronJobId);
+    if (!job) {
+      throw new Error(`Cron job not found: ${cronJobId}`);
+    }
+
+    this.logger.info('Manually triggering cron job', { cronJobId });
+    await this.executeCronJob(cronJobId, job);
+  }
+
+  /**
+   * Schedule a single cron job (helper method).
+   */
+  private scheduleJob(cronJobId: string, job: RegisteredCronJob): void {
+    // Validate cron expression
+    if (!cron.validate(job.schedule)) {
+      this.logger.error('Invalid cron expression', undefined, {
+        cronJobId,
+        schedule: job.schedule,
+      });
+      return;
+    }
+
+    // Schedule task
+    const task = cron.schedule(
+      job.schedule,
+      () => this.executeCronJob(cronJobId, job),
+      {
+        timezone: job.timezone,
+      }
+    );
+
+    this.scheduledTasks.set(cronJobId, task);
+
+    this.logger.info('Cron job scheduled', {
+      cronJobId,
+      schedule: job.schedule,
+      timezone: job.timezone,
+      source: job.source,
+    });
   }
 
   /**
