@@ -38,6 +38,8 @@ export interface WorkflowEngineOptions {
   analytics?: import('@kb-labs/core-platform').IAnalytics
   /** Platform execution backend (OPTIONAL - for plugin step execution) */
   executionBackend?: import('@kb-labs/plugin-execution').ExecutionBackend
+  /** Workspace root (monorepo root) - used for plugin execution context */
+  workspaceRoot?: string
 }
 
 export class WorkflowEngine {
@@ -56,22 +58,13 @@ export class WorkflowEngine {
   constructor(private readonly options: WorkflowEngineOptions = {}) {
     // Validate required platform adapters
     if (!options.cache) {
-      throw new Error(
-        'WorkflowEngine: options.cache is required. ' +
-        'Pass platform.cache from @kb-labs/core-platform'
-      )
+      throw new Error('WorkflowEngine: cache adapter is required')
     }
     if (!options.events) {
-      throw new Error(
-        'WorkflowEngine: options.events is required. ' +
-        'Pass platform.events from @kb-labs/core-platform'
-      )
+      throw new Error('WorkflowEngine: events adapter is required')
     }
     if (!options.logger) {
-      throw new Error(
-        'WorkflowEngine: options.logger is required. ' +
-        'Pass platform.logger from @kb-labs/core-platform'
-      )
+      throw new Error('WorkflowEngine: logger adapter is required')
     }
 
     this.logger = options.logger
@@ -103,7 +96,6 @@ export class WorkflowEngine {
   }
 
   async createRun(input: CreateRunInput): Promise<WorkflowRun> {
-    const startTime = Date.now()
     const run = await this.runCoordinator.ensureRun(input)
 
     // Track workflow run creation
@@ -281,6 +273,28 @@ export class WorkflowEngine {
   }
 
   /**
+   * Mark job as started (running).
+   */
+  async markJobStarted(runId: string, jobId: string): Promise<void> {
+    await this.stateStore.updateJob(runId, jobId, (draft) => {
+      draft.status = 'running'
+      draft.startedAt = new Date().toISOString()
+    })
+
+    this.logger.debug('Job started', { runId, jobId })
+
+    // Track job start
+    const run = await this.getRun(runId)
+    const job = run?.jobs.find((j) => j.id === jobId)
+    this.analytics?.track('workflow.job.started', {
+      runId,
+      jobId,
+      jobName: job?.jobName,
+      stepCount: job?.steps.length ?? 0,
+    }).catch(() => {})
+  }
+
+  /**
    * Mark job as completed successfully.
    */
   async markJobCompleted(runId: string, jobId: string): Promise<void> {
@@ -304,6 +318,59 @@ export class WorkflowEngine {
       durationMs: duration,
       stepCount: job?.steps.length ?? 0,
     }).catch(() => {})
+  }
+
+  /**
+   * Mark step as started (running).
+   */
+  async markStepStarted(runId: string, jobId: string, stepId: string): Promise<void> {
+    await this.stateStore.updateStep(runId, jobId, stepId, (draft) => {
+      draft.status = 'running'
+      draft.startedAt = new Date().toISOString()
+    })
+
+    this.logger.debug('Step started', { runId, jobId, stepId })
+  }
+
+  /**
+   * Mark step as completed successfully with output.
+   */
+  async markStepCompleted(
+    runId: string,
+    jobId: string,
+    stepId: string,
+    output?: unknown,
+  ): Promise<void> {
+    await this.stateStore.updateStep(runId, jobId, stepId, (draft) => {
+      draft.status = 'success'
+      draft.finishedAt = new Date().toISOString()
+      if (output !== undefined) {
+        draft.outputs = output as Record<string, unknown>
+      }
+    })
+
+    this.logger.debug('Step completed', { runId, jobId, stepId })
+  }
+
+  /**
+   * Mark step as failed with error.
+   */
+  async markStepFailed(
+    runId: string,
+    jobId: string,
+    stepId: string,
+    error: Error,
+  ): Promise<void> {
+    await this.stateStore.updateStep(runId, jobId, stepId, (draft) => {
+      draft.status = 'failed'
+      draft.finishedAt = new Date().toISOString()
+      draft.error = {
+        message: error.message,
+        stack: error.stack,
+      }
+    })
+
+    this.logger.debug('Step failed', { runId, jobId, stepId, error: error.message })
   }
 
   /**
@@ -387,7 +454,16 @@ export class WorkflowEngine {
     // Update run status to 'dlq'
     await this.stateStore.updateRun(runId, (draft) => {
       draft.status = 'dlq'
-      draft.error = error.message
+      draft.result = {
+        status: 'dlq',
+        summary: `Job ${jobId} failed after max retries`,
+        error: {
+          message: error.message,
+          details: {
+            stack: error.stack,
+          },
+        },
+      }
       draft.finishedAt = new Date().toISOString()
     })
 

@@ -72,6 +72,8 @@ export interface JobManagerConfig {
   defaultMaxRetries?: number;
   /** Default priority (default: 50) */
   defaultPriority?: number;
+  /** Workspace root (monorepo root) for plugin execution context */
+  workspaceRoot?: string;
 }
 
 /**
@@ -99,6 +101,7 @@ export class JobManager implements IJobScheduler {
   private readonly defaultTimeout: number;
   private readonly defaultMaxRetries: number;
   private readonly defaultPriority: number;
+  private readonly workspaceRoot: string;
 
   constructor(
     private readonly cache: ICache,
@@ -109,6 +112,7 @@ export class JobManager implements IJobScheduler {
     this.defaultTimeout = config.defaultTimeout ?? 300000; // 5 min
     this.defaultMaxRetries = config.defaultMaxRetries ?? 3;
     this.defaultPriority = config.defaultPriority ?? 50;
+    this.workspaceRoot = config.workspaceRoot ?? process.cwd(); // Fallback to process.cwd()
   }
 
   /**
@@ -389,7 +393,7 @@ export class JobManager implements IJobScheduler {
           tenantId: record.tenantId,
           traceId: executionId,
         },
-        workspace: process.cwd(),
+        workspace: this.workspaceRoot, // Use monorepo root, not daemon's process.cwd()
         pluginRoot: handlerEntry.pluginRoot,
         descriptor,
       };
@@ -579,7 +583,7 @@ export class JobManager implements IJobScheduler {
     return null;
   }
 
-  private async getAllJobKeys(pattern: string): Promise<string[]> {
+  private async getAllJobKeys(_pattern: string): Promise<string[]> {
     // TODO: Implement efficient key scanning
     // For now, this is a placeholder - real implementation would use cache.scan()
     // or maintain a separate index
