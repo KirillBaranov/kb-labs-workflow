@@ -22,7 +22,8 @@ let _initialized = false;
  */
 export async function initializePlatform(cwd: string = process.cwd()): Promise<void> {
   if (_initialized) {
-    console.log('[workflow-daemon] Platform already initialized, skipping');
+    // Use stderr since logger not initialized yet
+    process.stderr.write('[workflow-daemon] Platform already initialized, skipping\n');
     return;
   }
 
@@ -37,7 +38,7 @@ export async function initializePlatform(cwd: string = process.cwd()): Promise<v
     });
 
     if (!configPath) {
-      console.log('[workflow-daemon] No kb.config.json found, using NoOp adapters');
+      process.stderr.write('[workflow-daemon] No kb.config.json found, using NoOp adapters\n');
       await initPlatform({ adapters: {} }, cwd);
       _initialized = true;
       return;
@@ -46,28 +47,30 @@ export async function initializePlatform(cwd: string = process.cwd()): Promise<v
     // Read config
     const result = await readJsonWithDiagnostics<{ platform?: PlatformConfig }>(configPath);
     if (!result.ok) {
-      console.warn('[workflow-daemon] Failed to read kb.config.json, using NoOp adapters', {
-        errors: result.diagnostics.map(d => d.message),
-      });
+      process.stderr.write(`[workflow-daemon] Failed to read kb.config.json, using NoOp adapters: ${result.diagnostics.map(d => d.message).join(', ')}\n`);
       await initPlatform({ adapters: {} }, cwd);
       _initialized = true;
       return;
     }
 
+    // Store raw config globally for ConfigAdapter (so useConfig() works)
+    interface KBGlobal {
+      __KB_RAW_CONFIG__?: unknown;
+    }
+    (globalThis as KBGlobal).__KB_RAW_CONFIG__ = result.data;
+
     // Extract platform config
     const platformConfig = result.data.platform;
     if (!platformConfig) {
-      console.log('[workflow-daemon] No platform config in kb.config.json, using NoOp adapters');
+      process.stderr.write('[workflow-daemon] No platform config in kb.config.json, using NoOp adapters\n');
       await initPlatform({ adapters: {} }, cwd);
       _initialized = true;
       return;
     }
 
     // Initialize platform with config
-    console.log('[workflow-daemon] Initializing platform adapters', {
-      configPath,
-      adapters: Object.keys(platformConfig.adapters ?? {}),
-    });
+    const adapterKeys = Object.keys(platformConfig.adapters ?? {}).join(', ');
+    process.stderr.write(`[workflow-daemon] Initializing platform adapters: ${configPath} [${adapterKeys}]\n`);
 
     await initPlatform(platformConfig, cwd);
     _initialized = true;
@@ -79,9 +82,8 @@ export async function initializePlatform(cwd: string = process.cwd()): Promise<v
     });
 
   } catch (error) {
-    console.warn('[workflow-daemon] Platform initialization failed, using NoOp adapters', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`[workflow-daemon] Platform initialization failed, using NoOp adapters: ${errorMsg}\n`);
     await initPlatform({ adapters: {} }, cwd);
     _initialized = true;
   }
