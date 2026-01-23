@@ -725,6 +725,24 @@ export class WorkflowEngine {
   }
 
   /**
+   * List all workflow runs.
+   * Returns array of all runs in the system.
+   */
+  async listRuns(): Promise<WorkflowRun[]> {
+    const runIds = await this.stateStore.getAllRunIds()
+    const runs: WorkflowRun[] = []
+
+    for (const runId of runIds) {
+      const run = await this.stateStore.getRun(runId)
+      if (run) {
+        runs.push(run)
+      }
+    }
+
+    return runs
+  }
+
+  /**
    * Get workflow engine metrics.
    * Returns statistics about runs, jobs, and system health.
    */
