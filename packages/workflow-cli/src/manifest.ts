@@ -13,6 +13,10 @@ import {
   listFlags,
   runFlags,
 } from './flags';
+import {
+  WORKFLOW_BASE_PATH,
+  WORKFLOW_ROUTES,
+} from '@kb-labs/workflow-contracts';
 
 /**
  * Minimal permissions - workflow-cli only makes HTTP requests
@@ -171,6 +175,53 @@ export const manifest = {
           'kb workflow run --handler=mind:rag-query --input=\'{"text":"test"}\' --priority=8',
           'kb workflow run --handler=mind:rag-query --input=\'{"text":"test"}\' --json',
         ],
+      },
+    ],
+  },
+
+  // REST API routes (proxy to workflow daemon)
+  rest: {
+    basePath: WORKFLOW_BASE_PATH,
+    routes: [
+      // GET /workflows/jobs - List jobs
+      {
+        method: 'GET',
+        path: WORKFLOW_ROUTES.JOBS,
+        handler: './rest/jobs-list-handler.js#default',
+        describe: 'List workflow jobs with optional filters',
+        output: {
+          zod: '@kb-labs/workflow-contracts#JobListResponseSchema',
+        },
+      },
+      // GET /workflows/jobs/:jobId - Get job detail
+      {
+        method: 'GET',
+        path: WORKFLOW_ROUTES.JOB_DETAIL,
+        handler: './rest/job-detail-handler.js#default',
+        describe: 'Get detailed information about a specific job',
+        output: {
+          zod: '@kb-labs/workflow-contracts#JobStatusInfoSchema',
+        },
+      },
+      // POST /workflows/jobs/:jobId/cancel - Cancel job
+      {
+        method: 'POST',
+        path: WORKFLOW_ROUTES.JOB_CANCEL,
+        handler: './rest/job-cancel-handler.js#default',
+        describe: 'Cancel a running or pending job',
+        output: {
+          zod: '@kb-labs/workflow-contracts#JobCancelResponseSchema',
+        },
+      },
+      // GET /workflows/cron - List cron jobs
+      {
+        method: 'GET',
+        path: WORKFLOW_ROUTES.CRON,
+        handler: './rest/cron-list-handler.js#default',
+        describe: 'List all registered cron jobs',
+        output: {
+          zod: '@kb-labs/workflow-contracts#CronListResponseSchema',
+        },
       },
     ],
   },

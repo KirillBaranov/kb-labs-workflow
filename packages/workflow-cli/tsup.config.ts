@@ -13,6 +13,10 @@ export default defineConfig({
     'src/commands/logs.ts',
     'src/commands/list.ts',
     'src/commands/run.ts',
+    'src/rest/jobs-list-handler.ts',
+    'src/rest/job-detail-handler.ts',
+    'src/rest/job-cancel-handler.ts',
+    'src/rest/cron-list-handler.ts',
   ],
   external: [
     '@kb-labs/sdk',

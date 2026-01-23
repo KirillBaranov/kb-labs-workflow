@@ -8,6 +8,13 @@ export interface DaemonClientOptions {
   url?: string;
 }
 
+/**
+ * Get workflow daemon URL from environment or default
+ */
+export function getWorkflowDaemonUrl(): string {
+  return process.env.WORKFLOW_DAEMON_URL ?? DEFAULT_DAEMON_URL;
+}
+
 export class WorkflowDaemonClient {
   private readonly baseUrl: string;
 

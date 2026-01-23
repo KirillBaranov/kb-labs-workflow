@@ -3,6 +3,8 @@
  * REST API types for Workflow Service HTTP endpoints
  */
 
+import { z } from 'zod'
+
 /**
  * Job submission request (POST /api/jobs)
  */
@@ -142,3 +144,73 @@ export interface CronListResponse {
   /** List of cron jobs */
   crons: CronInfo[];
 }
+
+// ============================================================================
+// Zod Schemas
+// ============================================================================
+
+/**
+ * Job status enum schema
+ */
+export const JobStatusSchema = z.enum([
+  'pending',
+  'running',
+  'completed',
+  'failed',
+  'cancelled',
+])
+
+/**
+ * Job status info schema (GET /api/v1/jobs/:jobId)
+ */
+export const JobStatusInfoSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  status: JobStatusSchema,
+  tenantId: z.string().optional(),
+  priority: z.number().optional(),
+  createdAt: z.union([z.string(), z.date()]).optional(),
+  startedAt: z.union([z.string(), z.date()]).optional(),
+  finishedAt: z.union([z.string(), z.date()]).optional(),
+  attempt: z.number().optional(),
+  maxRetries: z.number().optional(),
+  result: z.unknown().optional(),
+  error: z.string().optional(),
+  progress: z.number().min(0).max(100).optional(),
+  progressMessage: z.string().optional(),
+})
+
+/**
+ * Job list response schema (GET /api/v1/jobs)
+ */
+export const JobListResponseSchema = z.object({
+  jobs: z.array(JobStatusInfoSchema),
+})
+
+/**
+ * Job cancel response schema (POST /api/v1/jobs/:jobId/cancel)
+ */
+export const JobCancelResponseSchema = z.object({
+  cancelled: z.boolean(),
+})
+
+/**
+ * Cron info schema (GET /api/v1/cron)
+ */
+export const CronInfoSchema = z.object({
+  id: z.string(),
+  schedule: z.string(),
+  jobType: z.string(),
+  timezone: z.string().optional(),
+  enabled: z.boolean(),
+  lastRun: z.union([z.string(), z.date()]).optional(),
+  nextRun: z.union([z.string(), z.date()]).optional(),
+  pluginId: z.string().optional(),
+})
+
+/**
+ * Cron list response schema (GET /api/v1/cron)
+ */
+export const CronListResponseSchema = z.object({
+  crons: z.array(CronInfoSchema),
+})
