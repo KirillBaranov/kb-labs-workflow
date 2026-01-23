@@ -110,9 +110,9 @@ export const runFlags = defineFlags({
 });
 
 // Type exports for use in command handlers
-export type StatusFlags = typeof statusFlags.type;
-export type LogsFlags = typeof logsFlags.type;
-export type MetricsFlags = typeof metricsFlags.type;
-export type HealthFlags = typeof healthFlags.type;
-export type ListFlags = typeof listFlags.type;
-export type RunFlags = typeof runFlags.type;
+export type StatusFlags = typeof statusFlags.infer;
+export type LogsFlags = typeof logsFlags.infer;
+export type MetricsFlags = typeof metricsFlags.infer;
+export type HealthFlags = typeof healthFlags.infer;
+export type ListFlags = typeof listFlags.infer;
+export type RunFlags = typeof runFlags.infer;
