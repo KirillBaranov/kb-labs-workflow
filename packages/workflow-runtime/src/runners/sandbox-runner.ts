@@ -82,6 +82,7 @@ interface PluginCommandResolution {
   pluginRoot: string
   handler: string
   input: unknown
+  configSection?: string
 }
 
 /**
@@ -96,6 +97,7 @@ export class SandboxRunner implements Runner {
   private readonly workspaceRoot: string
   private readonly defaultTimeout: number
   private readonly analytics?: import('@kb-labs/core-platform').IAnalytics
+  private readonly logger?: import('@kb-labs/core-platform').ILogger
 
   constructor(options: SandboxRunnerOptions) {
     this.backend = options.backend
@@ -235,6 +237,7 @@ export class SandboxRunner implements Runner {
       requestId,
       permissions: {}, // TODO: Extract from plugin manifest if needed
       hostContext,
+      configSection: resolution.configSection, // For useConfig() auto-detection
     }
 
     return {
@@ -245,7 +248,7 @@ export class SandboxRunner implements Runner {
       input: resolution.input,
       workspace: {
         type: 'local',
-        cwd: request.workspace ?? this.workspaceRoot,
+        cwd: request.workspace ?? this.workspaceRoot, // Use monorepo root from worker
       },
       timeoutMs: this.defaultTimeout,
     }
@@ -396,6 +399,7 @@ export class SandboxRunner implements Runner {
           pluginRoot: entry.pluginRoot,
           handler: command.handler,
           input: this.adaptToCLIFormat(input, request), // CLI Adapter
+          configSection: entry.manifest.configSection, // For useConfig() auto-detection
         }
       }
     }
