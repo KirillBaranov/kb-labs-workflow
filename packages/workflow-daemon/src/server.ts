@@ -14,6 +14,9 @@ import { registerJobsAPI } from './api/jobs-api.js';
 import { registerCronAPI } from './api/cron-api.js';
 import { registerWorkflowsAPI } from './api/workflows-api.js';
 import { registerStatsAPI } from './api/stats-api.js';
+import { registerLogsAPI } from './api/logs-api.js';
+import { registerStepsAPI } from './api/steps-api.js';
+import { registerHistoryAPI } from './api/history-api.js';
 
 export interface CreateServerOptions {
   engine: WorkflowEngine;
@@ -70,6 +73,27 @@ export async function createServer(options: CreateServerOptions) {
     jobBroker,
     workflowService,
     cronScheduler,
+    logger,
+  });
+
+  // Register logs API
+  registerLogsAPI({
+    server,
+    jobBroker,
+    logger,
+  });
+
+  // Register steps API
+  registerStepsAPI({
+    server,
+    engine,
+    logger,
+  });
+
+  // Register history API
+  registerHistoryAPI({
+    server,
+    engine,
     logger,
   });
 

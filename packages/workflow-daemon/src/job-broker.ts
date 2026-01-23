@@ -115,4 +115,85 @@ export class JobBroker {
     await this.engine.cancelRun(runId);
     this.logger.info('Job cancelled', { runId });
   }
+
+  /**
+   * Get job logs by run ID.
+   * Returns execution logs with optional filtering by level and pagination.
+   */
+  async getJobLogs(
+    runId: string,
+    options?: { limit?: number; offset?: number; level?: string }
+  ): Promise<Array<{ timestamp: string; level: string; message: string; context?: Record<string, unknown> }>> {
+    const run = await this.engine.getRun(runId);
+
+    if (!run) {
+      return [];
+    }
+
+    // TODO: Implement proper log storage and retrieval
+    // For now, return placeholder logs based on run status
+    const logs: Array<{ timestamp: string; level: string; message: string; context?: Record<string, unknown> }> = [];
+
+    // Add start log
+    if (run.startedAt) {
+      logs.push({
+        timestamp: run.startedAt.toISOString(),
+        level: 'info',
+        message: `Job started: ${run.workflowName}`,
+        context: { runId: run.id, status: run.status },
+      });
+    }
+
+    // Add step logs
+    if (run.steps) {
+      for (const step of run.steps) {
+        if (step.startedAt) {
+          logs.push({
+            timestamp: step.startedAt.toISOString(),
+            level: 'info',
+            message: `Step started: ${step.name}`,
+            context: { stepName: step.name, handler: step.handler },
+          });
+        }
+
+        if (step.error) {
+          logs.push({
+            timestamp: step.finishedAt?.toISOString() || new Date().toISOString(),
+            level: 'error',
+            message: `Step failed: ${step.error}`,
+            context: { stepName: step.name },
+          });
+        } else if (step.finishedAt) {
+          logs.push({
+            timestamp: step.finishedAt.toISOString(),
+            level: 'info',
+            message: `Step completed: ${step.name}`,
+            context: { stepName: step.name, durationMs: step.durationMs },
+          });
+        }
+      }
+    }
+
+    // Add completion log
+    if (run.finishedAt) {
+      logs.push({
+        timestamp: run.finishedAt.toISOString(),
+        level: run.status === 'failed' ? 'error' : 'info',
+        message: `Job ${run.status}: ${run.workflowName}`,
+        context: { runId: run.id, status: run.status, durationMs: run.durationMs },
+      });
+    }
+
+    // Filter by level if specified
+    let filtered = logs;
+    if (options?.level && options.level !== 'all') {
+      filtered = logs.filter((log) => log.level === options.level);
+    }
+
+    // Apply pagination
+    const offset = options?.offset ?? 0;
+    const limit = options?.limit ?? 100;
+
+    return filtered.slice(offset, offset + limit);
+  }
 }
