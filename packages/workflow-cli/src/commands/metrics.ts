@@ -8,7 +8,7 @@ import { WorkflowDaemonClient } from '../http-client.js';
 
 type MetricsInput = MetricsFlags & { argv?: string[] };
 
-export default defineCommand({
+export default defineCommand<unknown, MetricsInput, { exitCode: number }>({
   id: 'workflow:metrics',
   description: 'Get workflow daemon metrics',
 
@@ -66,3 +66,4 @@ export default defineCommand({
     },
   },
 });
+

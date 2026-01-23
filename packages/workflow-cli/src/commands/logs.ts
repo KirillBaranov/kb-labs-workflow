@@ -8,7 +8,7 @@ import { WorkflowDaemonClient } from '../http-client.js';
 
 type LogsInput = LogsFlags & { argv?: string[] };
 
-export default defineCommand({
+export default defineCommand<unknown, LogsInput, { exitCode: number }>({
   id: 'workflow:logs',
   description: 'Get logs for a workflow job',
 
@@ -68,3 +68,4 @@ export default defineCommand({
     },
   },
 });
+

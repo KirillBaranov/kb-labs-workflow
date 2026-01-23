@@ -8,7 +8,7 @@ import { WorkflowDaemonClient } from '../http-client.js';
 
 type StatusInput = StatusFlags & { argv?: string[] };
 
-export default defineCommand({
+export default defineCommand<unknown, StatusInput, { exitCode: number }>({
   id: 'workflow:status',
   description: 'Get status of a workflow job',
 
@@ -63,3 +63,4 @@ export default defineCommand({
     },
   },
 });
+

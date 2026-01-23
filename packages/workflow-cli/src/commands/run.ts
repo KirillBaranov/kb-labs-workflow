@@ -8,7 +8,7 @@ import { type RunFlags } from '../flags.js';
 
 type RunInput = RunFlags & { argv?: string[] };
 
-export default defineCommand({
+export default defineCommand<unknown, RunInput, { exitCode: number }>({
   id: 'workflow:run',
   description: 'Submit a job for execution',
 
@@ -131,3 +131,4 @@ export default defineCommand({
     },
   },
 });
+

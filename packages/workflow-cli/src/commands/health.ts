@@ -8,7 +8,7 @@ import { WorkflowDaemonClient } from '../http-client.js';
 
 type HealthInput = HealthFlags & { argv?: string[] };
 
-export default defineCommand({
+export default defineCommand<unknown, HealthInput, { exitCode: number }>({
   id: 'workflow:health',
   description: 'Check workflow daemon health status',
 

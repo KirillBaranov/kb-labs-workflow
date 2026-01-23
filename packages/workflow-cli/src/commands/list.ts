@@ -8,7 +8,7 @@ import { WorkflowDaemonClient } from '../http-client.js';
 
 type ListInput = ListFlags & { argv?: string[] };
 
-export default defineCommand({
+export default defineCommand<unknown, ListInput, { exitCode: number }>({
   id: 'workflow:list',
   description: 'List active workflow executions',
 
@@ -125,3 +125,4 @@ export default defineCommand({
     },
   },
 });
+
