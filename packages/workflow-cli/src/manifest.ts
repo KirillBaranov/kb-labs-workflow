@@ -183,6 +183,16 @@ export const manifest = {
   rest: {
     basePath: WORKFLOW_BASE_PATH,
     routes: [
+      // GET /stats - Dashboard statistics
+      {
+        method: 'GET',
+        path: WORKFLOW_ROUTES.STATS,
+        handler: './rest/stats-handler.js#default',
+        describe: 'Get dashboard statistics',
+        output: {
+          zod: '@kb-labs/workflow-contracts#DashboardStatsResponseSchema',
+        },
+      },
       // GET /workflows - List workflow definitions
       {
         method: 'GET',
@@ -213,6 +223,16 @@ export const manifest = {
           zod: '@kb-labs/workflow-contracts#WorkflowRunRequestSchema',
         },
       },
+      // GET /workflows/:workflowId/runs - Get workflow run history
+      {
+        method: 'GET',
+        path: WORKFLOW_ROUTES.WORKFLOW_RUNS,
+        handler: './rest/workflow-runs-handler.js#default',
+        describe: 'Get workflow run history with pagination',
+        output: {
+          zod: '@kb-labs/workflow-contracts#WorkflowRunHistoryResponseSchema',
+        },
+      },
       // GET /workflows/jobs - List jobs
       {
         method: 'GET',
@@ -231,6 +251,26 @@ export const manifest = {
         describe: 'Get detailed information about a specific job',
         output: {
           zod: '@kb-labs/workflow-contracts#JobStatusInfoSchema',
+        },
+      },
+      // GET /workflows/jobs/:jobId/logs - Get job logs
+      {
+        method: 'GET',
+        path: WORKFLOW_ROUTES.JOB_LOGS,
+        handler: './rest/job-logs-handler.js#default',
+        describe: 'Get execution logs for a specific job',
+        output: {
+          zod: '@kb-labs/workflow-contracts#JobLogsResponseSchema',
+        },
+      },
+      // GET /workflows/jobs/:jobId/steps - Get job steps
+      {
+        method: 'GET',
+        path: WORKFLOW_ROUTES.JOB_STEPS,
+        handler: './rest/job-steps-handler.js#default',
+        describe: 'Get execution steps and progress for a specific job',
+        output: {
+          zod: '@kb-labs/workflow-contracts#JobStepsResponseSchema',
         },
       },
       // POST /workflows/jobs/:jobId/cancel - Cancel job
@@ -252,6 +292,29 @@ export const manifest = {
         output: {
           zod: '@kb-labs/workflow-contracts#CronListResponseSchema',
         },
+      },
+    ],
+  },
+
+  // WebSocket channels for real-time updates
+  ws: {
+    basePath: '/v1/ws/plugins/workflow',
+    defaults: {
+      timeoutMs: 600000, // 10 minutes
+      maxMessageSize: 1048576, // 1MB
+      auth: 'none',
+      idleTimeoutMs: 300000, // 5 minutes
+    },
+    channels: [
+      {
+        path: '/logs/:jobId',
+        handler: './ws/logs-channel.js#default',
+        description: 'Real-time job logs streaming',
+      },
+      {
+        path: '/progress/:jobId',
+        handler: './ws/progress-channel.js#default',
+        description: 'Real-time job progress updates',
       },
     ],
   },
