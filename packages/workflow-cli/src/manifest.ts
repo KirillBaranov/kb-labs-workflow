@@ -183,6 +183,36 @@ export const manifest = {
   rest: {
     basePath: WORKFLOW_BASE_PATH,
     routes: [
+      // GET /workflows - List workflow definitions
+      {
+        method: 'GET',
+        path: WORKFLOW_ROUTES.WORKFLOWS,
+        handler: './rest/workflows-list-handler.js#default',
+        describe: 'List all workflow definitions',
+        output: {
+          zod: '@kb-labs/workflow-contracts#WorkflowListResponseSchema',
+        },
+      },
+      // GET /workflows/:id - Get workflow detail
+      {
+        method: 'GET',
+        path: WORKFLOW_ROUTES.WORKFLOW_DETAIL,
+        handler: './rest/workflow-detail-handler.js#default',
+        describe: 'Get workflow definition details',
+        output: {
+          zod: '@kb-labs/workflow-contracts#WorkflowInfoSchema',
+        },
+      },
+      // POST /workflows/:id/run - Run workflow
+      {
+        method: 'POST',
+        path: WORKFLOW_ROUTES.WORKFLOW_RUN,
+        handler: './rest/workflow-run-handler.js#default',
+        describe: 'Run a workflow',
+        input: {
+          zod: '@kb-labs/workflow-contracts#WorkflowRunRequestSchema',
+        },
+      },
       // GET /workflows/jobs - List jobs
       {
         method: 'GET',
