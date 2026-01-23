@@ -16,6 +16,8 @@ export interface CreateWorkflowWorkerOptions {
   logger: ILogger;
   workspaceRoot: string;
   concurrency?: number;
+  /** Default timeout for step execution (ms). Default: 120000 (2 minutes) */
+  defaultTimeout?: number;
   /** Platform analytics adapter (OPTIONAL) */
   analytics?: import('@kb-labs/core-platform').IAnalytics;
 }
@@ -39,6 +41,7 @@ export async function createWorkflowWorker(
     logger,
     workspaceRoot,
     concurrency = 5,
+    defaultTimeout = 120000,
     analytics,
   } = options;
 
@@ -61,7 +64,7 @@ export async function createWorkflowWorker(
     backend: executionBackend,
     cliApi,
     workspaceRoot,
-    defaultTimeout: 120000, // 2 minutes
+    defaultTimeout,
   });
 
   /**
@@ -76,14 +79,20 @@ export async function createWorkflowWorker(
     // Get run and job from state store using IDs from queue entry
     const run = await engine.getRun(entry.runId);
     if (!run) {
-      logger.warn('Run not found for job entry', { runId: entry.runId, jobId: entry.jobId });
-      return true; // Entry was processed (but run missing)
+      logger.error('Data inconsistency: Run not found for job entry', undefined, {
+        runId: entry.runId,
+        jobId: entry.jobId
+      });
+      return true; // Entry was processed (but run missing - data corruption)
     }
 
     const job = run.jobs.find(j => j.id === entry.jobId);
     if (!job) {
-      logger.warn('Job not found in run', { runId: run.id, jobId: entry.jobId });
-      return true; // Entry was processed (but job missing)
+      logger.error('Data inconsistency: Job not found in run', undefined, {
+        runId: run.id,
+        jobId: entry.jobId
+      });
+      return true; // Entry was processed (but job missing - data corruption)
     }
 
     const jobKey = `${run.id}:${job.id}`;
@@ -95,6 +104,9 @@ export async function createWorkflowWorker(
       jobName: job.jobName,
     });
 
+    // Mark job as started (sets startedAt timestamp)
+    await engine.markJobStarted(run.id, job.id);
+
     // Track job processing started
     analytics?.track('workflow.worker.job.started', {
       runId: run.id,
@@ -102,9 +114,6 @@ export async function createWorkflowWorker(
       jobName: job.jobName,
       stepCount: job.steps.length,
     }).catch(() => {});
-
-    // Debug: log the first step
-    console.log('🔍 JOB.STEPS[0]:', JSON.stringify(job.steps[0], null, 2));
 
     // Create job execution promise for graceful shutdown tracking
     const jobPromise = (async () => {
@@ -120,6 +129,9 @@ export async function createWorkflowWorker(
             jobId: job.id,
             stepId: step.id,
           });
+
+          // Mark step as started (sets startedAt timestamp)
+          await engine.markStepStarted(run.id, job.id, step.id);
 
           const result = await runner.execute({
             spec: step.spec,  // Pass StepSpec, not StepRun
@@ -137,6 +149,10 @@ export async function createWorkflowWorker(
 
           if (result.status === 'failed') {
             const error = new Error(result.error?.message ?? 'Step execution failed');
+
+            // Mark step as failed (sets finishedAt timestamp + error)
+            await engine.markStepFailed(run.id, job.id, step.id, error);
+
             logger.error('Step failed', error, {
               runId: run.id,
               jobId: job.id,
@@ -144,6 +160,9 @@ export async function createWorkflowWorker(
             });
             throw error;
           }
+
+          // Mark step as completed (sets finishedAt timestamp + output)
+          await engine.markStepCompleted(run.id, job.id, step.id, result.output);
 
           logger.info('Step completed', {
             runId: run.id,
@@ -173,7 +192,9 @@ export async function createWorkflowWorker(
         const err = error instanceof Error ? error : new Error(String(error));
         const jobDuration = Date.now() - jobStartTime;
 
-        // Mark job as failed (will retry if configured)
+        // Mark job as failed (engine will retry based on retries policy: max 3 attempts by default)
+        // shouldRetry=true means "attempt retry if policy allows"
+        // Engine checks attempt < retryPolicy.max to prevent infinite loops
         await engine.markJobFailed(run.id, job.id, err, true);
 
         // Track job processing failed

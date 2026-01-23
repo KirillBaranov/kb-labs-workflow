@@ -37,6 +37,13 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   // Initialize platform adapters from kb.config.json
   await initializePlatform(repoRoot);
 
+  // Validate ExecutionBackend is available BEFORE creating any resources
+  if (!platform.executionBackend) {
+    // Use stderr since platform.logger might not be configured
+    process.stderr.write('[workflow-daemon] FATAL: ExecutionBackend not available\n');
+    throw new Error('ExecutionBackend is required for workflow daemon. Check platform configuration.');
+  }
+
   // Now we can use platform.logger (configured from kb.config.json)
   const bootstrapLogger = platform.logger.child({
     layer: 'workflow',
@@ -45,12 +52,6 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   });
 
   bootstrapLogger.info('Workflow daemon starting', { repoRoot });
-
-  // Validate ExecutionBackend is available
-  if (!platform.executionBackend) {
-    bootstrapLogger.error('ExecutionBackend not available in platform');
-    throw new Error('ExecutionBackend is required for workflow daemon');
-  }
 
   // Initialize CLI API for plugin discovery
   bootstrapLogger.info('Initializing CLI API for plugin discovery');
@@ -68,7 +69,8 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
       level: 'info',
     },
     snapshot: {
-      mode: 'consumer', // Workflow daemon consumes snapshots
+      mode: 'producer', // Workflow daemon produces its own snapshots (standalone mode)
+      refreshIntervalMs: 60_000, // Refresh every minute
     },
   });
 
@@ -86,6 +88,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
     events: platform.eventBus,
     logger: platform.logger,
     executionBackend: platform.executionBackend,
+    workspaceRoot: repoRoot, // Pass monorepo root for plugin execution context
   });
 
   // Resume interrupted jobs from previous shutdown
@@ -145,6 +148,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
     executionBackend: platform.executionBackend,
     cliApi,
     logger: platform.logger,
+    analytics: platform.analytics,
     workspaceRoot: repoRoot,
     concurrency: parseInt(process.env.WORKFLOW_CONCURRENCY || '5', 10),
   });
@@ -156,9 +160,11 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   bootstrapLogger.info('Starting WorkflowWorker');
   // Start worker in background (non-blocking)
   worker.start().catch(error => {
-    bootstrapLogger.error('Worker crashed', {
+    bootstrapLogger.error('Worker crashed - shutting down daemon', {
       error: error instanceof Error ? error.message : String(error),
     });
+    // Trigger graceful shutdown - daemon cannot function without worker
+    process.kill(process.pid, 'SIGTERM');
   });
 
   // Start cron scheduler
