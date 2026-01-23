@@ -29,7 +29,7 @@ export function registerCronAPI(options: CronAPIOptions): void {
    * POST /api/cron
    */
   server.post<{ Body: CronRegistrationRequest }>(
-    '/api/cron',
+    '/api/v1/cron',
     async (request, reply) => {
       if (!cronScheduler) {
         reply.code(503);
@@ -107,7 +107,7 @@ export function registerCronAPI(options: CronAPIOptions): void {
    * List cron jobs
    * GET /api/cron
    */
-  server.get('/api/cron', async (request, reply) => {
+  server.get('/api/v1/cron', async (request, reply) => {
     if (!cronScheduler) {
       reply.code(503);
       return { error: 'Cron scheduler not available' };

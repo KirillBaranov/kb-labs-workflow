@@ -31,10 +31,10 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
 
   /**
    * Submit job
-   * POST /api/jobs
+   * POST /api/v1/jobs
    */
   server.post<{ Body: JobSubmissionRequest }>(
-    '/api/jobs',
+    '/api/v1/jobs',
     async (request, reply) => {
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
       const { type, payload, priority, maxRetries, timeout, runAt, idempotencyKey } = request.body;
@@ -71,10 +71,10 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
 
   /**
    * Get job status
-   * GET /api/jobs/:jobId
+   * GET /api/v1/jobs/:jobId
    */
   server.get<{ Params: { jobId: string } }>(
-    '/api/jobs/:jobId',
+    '/api/v1/jobs/:jobId',
     async (request, reply) => {
       const { jobId } = request.params;
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
@@ -114,10 +114,10 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
 
   /**
    * Cancel job
-   * POST /api/jobs/:jobId/cancel
+   * POST /api/v1/jobs/:jobId/cancel
    */
   server.post<{ Params: { jobId: string } }>(
-    '/api/jobs/:jobId/cancel',
+    '/api/v1/jobs/:jobId/cancel',
     async (request, reply) => {
       const { jobId } = request.params;
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
@@ -148,10 +148,10 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
 
   /**
    * List jobs
-   * GET /api/jobs?type=pattern&status=running&limit=10&offset=0
+   * GET /api/v1/jobs?type=pattern&status=running&limit=10&offset=0
    */
   server.get<{ Querystring: JobListFilter }>(
-    '/api/jobs',
+    '/api/v1/jobs',
     async (request, reply) => {
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
       const { type, status, limit, offset } = request.query;
