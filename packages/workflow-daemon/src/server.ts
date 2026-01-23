@@ -5,17 +5,20 @@
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import type { WorkflowEngine } from '@kb-labs/workflow-engine';
+import type { WorkflowEngine, WorkflowService } from '@kb-labs/workflow-engine';
 import type { ILogger } from '@kb-labs/core-platform';
 import type { JobBroker } from './job-broker.js';
 import type { CronScheduler } from './cron-scheduler.js';
 import type { CronDiscovery } from './cron-discovery.js';
 import { registerJobsAPI } from './api/jobs-api.js';
 import { registerCronAPI } from './api/cron-api.js';
+import { registerWorkflowsAPI } from './api/workflows-api.js';
+import { registerStatsAPI } from './api/stats-api.js';
 
 export interface CreateServerOptions {
   engine: WorkflowEngine;
   jobBroker: JobBroker;
+  workflowService?: WorkflowService;
   cronScheduler?: CronScheduler;
   cronDiscovery?: CronDiscovery;
   logger: ILogger;
@@ -26,7 +29,7 @@ export interface CreateServerOptions {
  * Provides endpoints for job management and monitoring.
  */
 export async function createServer(options: CreateServerOptions) {
-  const { engine, jobBroker, cronScheduler, cronDiscovery, logger } = options;
+  const { engine, jobBroker, workflowService, cronScheduler, cronDiscovery, logger } = options;
 
   const server = Fastify({
     logger: false, // Use platform logger instead
@@ -47,6 +50,25 @@ export async function createServer(options: CreateServerOptions) {
 
   registerCronAPI({
     server,
+    cronScheduler,
+    logger,
+  });
+
+  if (workflowService) {
+    registerWorkflowsAPI({
+      server,
+      workflowService,
+      engine,
+      logger,
+    });
+  }
+
+  // Register stats API (dashboard)
+  registerStatsAPI({
+    server,
+    engine,
+    jobBroker,
+    workflowService,
     cronScheduler,
     logger,
   });

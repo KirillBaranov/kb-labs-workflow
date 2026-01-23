@@ -6,7 +6,7 @@
 import { loadEnvFile } from './env-loader.js';
 import { initializePlatform } from './platform.js';
 import { platform } from '@kb-labs/core-runtime';
-import { WorkflowEngine } from '@kb-labs/workflow-engine';
+import { WorkflowEngine, WorkflowService } from '@kb-labs/workflow-engine';
 import { createWorkflowWorker } from './worker.js';
 import { JobBroker } from './job-broker.js';
 import { CronScheduler } from './cron-scheduler.js';
@@ -123,11 +123,19 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   const discovered = await cronDiscovery.discoverAll();
   bootstrapLogger.info('Cron job discovery complete', discovered);
 
+  // Create WorkflowService for workflow definitions management
+  bootstrapLogger.info('Creating WorkflowService');
+  const workflowService = new WorkflowService({
+    cliApi,
+    platform,
+  });
+
   // Create HTTP API server (pass cronDiscovery for refresh endpoint)
   bootstrapLogger.info('Creating HTTP server');
   const server = await createServer({
     engine,
     jobBroker,
+    workflowService,
     cronScheduler,
     cronDiscovery,
     logger: platform.logger,
