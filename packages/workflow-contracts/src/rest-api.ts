@@ -145,6 +145,47 @@ export interface CronListResponse {
   crons: CronInfo[];
 }
 
+/**
+ * Workflow definition info (GET /api/v1/workflows)
+ */
+export interface WorkflowInfo {
+  /** Workflow ID (e.g., "release-manager/create-release") */
+  id: string;
+  /** Human-readable name */
+  name: string;
+  /** Description */
+  description?: string;
+  /** Source type */
+  source: 'manifest' | 'standalone';
+  /** Plugin ID (for manifest workflows) */
+  pluginId?: string;
+  /** Status */
+  status?: 'active' | 'inactive';
+  /** Tags */
+  tags?: string[];
+}
+
+/**
+ * Workflow list response (GET /api/v1/workflows)
+ */
+export interface WorkflowListResponse {
+  /** List of workflows */
+  workflows: WorkflowInfo[];
+}
+
+/**
+ * Workflow run request (POST /api/v1/workflows/:id/run)
+ */
+export interface WorkflowRunRequest {
+  /** Workflow input payload */
+  input?: unknown;
+  /** Trigger metadata */
+  trigger?: {
+    type: 'manual' | 'api' | 'cron';
+    user?: string;
+  };
+}
+
 // ============================================================================
 // Zod Schemas
 // ============================================================================
@@ -213,4 +254,289 @@ export const CronInfoSchema = z.object({
  */
 export const CronListResponseSchema = z.object({
   crons: z.array(CronInfoSchema),
+})
+
+/**
+ * Workflow info schema (GET /api/v1/workflows)
+ */
+export const WorkflowInfoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  source: z.enum(['manifest', 'standalone']),
+  pluginId: z.string().optional(),
+  status: z.enum(['active', 'inactive']).optional(),
+  tags: z.array(z.string()).optional(),
+})
+
+/**
+ * Workflow list response schema (GET /api/v1/workflows)
+ */
+export const WorkflowListResponseSchema = z.object({
+  workflows: z.array(WorkflowInfoSchema),
+})
+
+/**
+ * Workflow run request schema (POST /api/v1/workflows/:id/run)
+ */
+export const WorkflowRunRequestSchema = z.object({
+  input: z.unknown().optional(),
+  trigger: z.object({
+    type: z.enum(['manual', 'api', 'cron']),
+    user: z.string().optional(),
+  }).optional(),
+})
+
+/**
+ * Dashboard stats response (GET /api/v1/stats)
+ */
+export interface DashboardStatsResponse {
+  /** Workflow statistics */
+  workflows: {
+    total: number;
+    active: number;
+    inactive: number;
+  };
+  /** Job statistics */
+  jobs: {
+    running: number;
+    pending: number;
+    completed: number;
+    failed: number;
+  };
+  /** Cron statistics */
+  crons: {
+    total: number;
+    enabled: number;
+    disabled: number;
+  };
+  /** Active executions (currently running) */
+  activeExecutions: Array<{
+    id: string;
+    type: string;
+    workflowName?: string;
+    status: 'running';
+    progress?: number;
+    progressMessage?: string;
+    startedAt: string;
+    durationMs?: number;
+  }>;
+  /** Recent activity (last 10 completed/failed jobs) */
+  recentActivity: Array<{
+    id: string;
+    type: string;
+    workflowName?: string;
+    status: 'completed' | 'failed' | 'cancelled';
+    finishedAt: string;
+    durationMs?: number;
+    error?: string;
+  }>;
+}
+
+/**
+ * Job logs response (GET /api/v1/jobs/:jobId/logs)
+ */
+export interface JobLogsResponse {
+  /** Job ID */
+  jobId: string;
+  /** Log entries */
+  logs: Array<{
+    timestamp: string;
+    level: 'info' | 'warn' | 'error' | 'debug';
+    message: string;
+    context?: Record<string, unknown>;
+  }>;
+  /** Total log count */
+  total: number;
+  /** Has more logs available */
+  hasMore: boolean;
+}
+
+/**
+ * Job execution step info (GET /api/v1/jobs/:jobId/steps)
+ */
+export interface JobStepInfo {
+  /** Step name */
+  name: string;
+  /** Step handler */
+  handler?: string;
+  /** Step status */
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  /** Step progress (0-100) */
+  progress?: number;
+  /** Step start time */
+  startedAt?: string;
+  /** Step finish time */
+  finishedAt?: string;
+  /** Step duration in ms */
+  durationMs?: number;
+  /** Step error message */
+  error?: string;
+  /** Step result/output */
+  output?: unknown;
+}
+
+/**
+ * Job steps response (GET /api/v1/jobs/:jobId/steps)
+ */
+export interface JobStepsResponse {
+  /** Job ID */
+  jobId: string;
+  /** Workflow name (if applicable) */
+  workflowName?: string;
+  /** Overall status */
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  /** Execution steps */
+  steps: JobStepInfo[];
+  /** Current step index */
+  currentStep?: number;
+}
+
+/**
+ * Workflow run history entry
+ */
+export interface WorkflowRunInfo {
+  /** Run ID */
+  id: string;
+  /** Workflow ID */
+  workflowId: string;
+  /** Run status */
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  /** Trigger info */
+  trigger: {
+    type: 'manual' | 'api' | 'cron';
+    user?: string;
+  };
+  /** Start time */
+  startedAt: string;
+  /** Finish time */
+  finishedAt?: string;
+  /** Duration in ms */
+  durationMs?: number;
+  /** Error message (if failed) */
+  error?: string;
+}
+
+/**
+ * Workflow run history response (GET /api/v1/workflows/:id/runs)
+ */
+export interface WorkflowRunHistoryResponse {
+  /** Workflow ID */
+  workflowId: string;
+  /** Run history */
+  runs: WorkflowRunInfo[];
+  /** Total count */
+  total: number;
+}
+
+// ============================================================================
+// Zod Schemas for New Endpoints
+// ============================================================================
+
+/**
+ * Dashboard stats response schema
+ */
+export const DashboardStatsResponseSchema = z.object({
+  workflows: z.object({
+    total: z.number(),
+    active: z.number(),
+    inactive: z.number(),
+  }),
+  jobs: z.object({
+    running: z.number(),
+    pending: z.number(),
+    completed: z.number(),
+    failed: z.number(),
+  }),
+  crons: z.object({
+    total: z.number(),
+    enabled: z.number(),
+    disabled: z.number(),
+  }),
+  activeExecutions: z.array(z.object({
+    id: z.string(),
+    type: z.string(),
+    workflowName: z.string().optional(),
+    status: z.literal('running'),
+    progress: z.number().min(0).max(100).optional(),
+    progressMessage: z.string().optional(),
+    startedAt: z.string(),
+    durationMs: z.number().optional(),
+  })),
+  recentActivity: z.array(z.object({
+    id: z.string(),
+    type: z.string(),
+    workflowName: z.string().optional(),
+    status: z.enum(['completed', 'failed', 'cancelled']),
+    finishedAt: z.string(),
+    durationMs: z.number().optional(),
+    error: z.string().optional(),
+  })),
+})
+
+/**
+ * Job logs response schema
+ */
+export const JobLogsResponseSchema = z.object({
+  jobId: z.string(),
+  logs: z.array(z.object({
+    timestamp: z.string(),
+    level: z.enum(['info', 'warn', 'error', 'debug']),
+    message: z.string(),
+    context: z.record(z.unknown()).optional(),
+  })),
+  total: z.number(),
+  hasMore: z.boolean(),
+})
+
+/**
+ * Job step info schema
+ */
+export const JobStepInfoSchema = z.object({
+  name: z.string(),
+  handler: z.string().optional(),
+  status: z.enum(['pending', 'running', 'completed', 'failed', 'skipped']),
+  progress: z.number().min(0).max(100).optional(),
+  startedAt: z.string().optional(),
+  finishedAt: z.string().optional(),
+  durationMs: z.number().optional(),
+  error: z.string().optional(),
+  output: z.unknown().optional(),
+})
+
+/**
+ * Job steps response schema
+ */
+export const JobStepsResponseSchema = z.object({
+  jobId: z.string(),
+  workflowName: z.string().optional(),
+  status: z.enum(['pending', 'running', 'completed', 'failed', 'cancelled']),
+  steps: z.array(JobStepInfoSchema),
+  currentStep: z.number().optional(),
+})
+
+/**
+ * Workflow run info schema
+ */
+export const WorkflowRunInfoSchema = z.object({
+  id: z.string(),
+  workflowId: z.string(),
+  status: z.enum(['pending', 'running', 'completed', 'failed', 'cancelled']),
+  trigger: z.object({
+    type: z.enum(['manual', 'api', 'cron']),
+    user: z.string().optional(),
+  }),
+  startedAt: z.string(),
+  finishedAt: z.string().optional(),
+  durationMs: z.number().optional(),
+  error: z.string().optional(),
+})
+
+/**
+ * Workflow run history response schema
+ */
+export const WorkflowRunHistoryResponseSchema = z.object({
+  workflowId: z.string(),
+  runs: z.array(WorkflowRunInfoSchema),
+  total: z.number(),
 })
