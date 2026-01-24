@@ -6,7 +6,7 @@
 
 import type { WorkflowEngine } from '@kb-labs/workflow-engine';
 import type { WorkflowRun, WorkflowSpec } from '@kb-labs/workflow-contracts';
-import type { ILogger } from '@kb-labs/core-platform';
+import type { ILogger, IPlatform } from '@kb-labs/core-platform';
 
 export interface SubmitJobRequest {
   handler: string;
@@ -30,6 +30,7 @@ export class JobBroker {
   constructor(
     private readonly engine: WorkflowEngine,
     private readonly logger: ILogger,
+    private readonly platform: IPlatform,
   ) {}
 
   /**
@@ -119,6 +120,7 @@ export class JobBroker {
   /**
    * Get job logs by run ID.
    * Returns execution logs with optional filtering by level and pagination.
+   * Uses platform.logs service to query logs by runId metadata.
    */
   async getJobLogs(
     runId: string,
@@ -130,70 +132,51 @@ export class JobBroker {
       return [];
     }
 
-    // TODO: Implement proper log storage and retrieval
-    // For now, return placeholder logs based on run status
-    const logs: Array<{ timestamp: string; level: string; message: string; context?: Record<string, unknown> }> = [];
+    // Query logs using platform.logs service
+    // Since LogQuery doesn't support metadata filtering, we need to:
+    // 1. Query all logs in the time window of the job execution
+    // 2. Filter in-memory by runId in fields
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 0;
 
-    // Add start log
-    if (run.startedAt) {
-      logs.push({
-        timestamp: run.startedAt.toISOString(),
-        level: 'info',
-        message: `Job started: ${run.workflowName}`,
-        context: { runId: run.id, status: run.status },
-      });
-    }
+    // Calculate time window for query
+    const startTime = run.startedAt ? new Date(run.startedAt).getTime() : Date.now() - 3600000; // 1 hour ago fallback
+    const endTime = run.finishedAt ? new Date(run.finishedAt).getTime() : Date.now();
 
-    // Add step logs
-    if (run.steps) {
-      for (const step of run.steps) {
-        if (step.startedAt) {
-          logs.push({
-            timestamp: step.startedAt.toISOString(),
-            level: 'info',
-            message: `Step started: ${step.name}`,
-            context: { stepName: step.name, handler: step.handler },
-          });
-        }
-
-        if (step.error) {
-          logs.push({
-            timestamp: step.finishedAt?.toISOString() || new Date().toISOString(),
-            level: 'error',
-            message: `Step failed: ${step.error}`,
-            context: { stepName: step.name },
-          });
-        } else if (step.finishedAt) {
-          logs.push({
-            timestamp: step.finishedAt.toISOString(),
-            level: 'info',
-            message: `Step completed: ${step.name}`,
-            context: { stepName: step.name, durationMs: step.durationMs },
-          });
-        }
+    // Query logs with wider limit to ensure we get all logs after filtering
+    const queryResult = await this.platform.logs.query(
+      {
+        from: startTime,
+        to: endTime,
+        level: options?.level && options.level !== 'all' ? options.level as any : undefined,
+      },
+      {
+        limit: 1000, // Query more logs, then filter in-memory
+        offset: 0,
       }
-    }
+    );
 
-    // Add completion log
-    if (run.finishedAt) {
-      logs.push({
-        timestamp: run.finishedAt.toISOString(),
-        level: run.status === 'failed' ? 'error' : 'info',
-        message: `Job ${run.status}: ${run.workflowName}`,
-        context: { runId: run.id, status: run.status, durationMs: run.durationMs },
-      });
-    }
+    // Filter logs by runId in metadata
+    const filteredLogs = queryResult.logs.filter(log => {
+      // Check if log has runId in fields metadata
+      return log.fields.runId === runId ||
+             log.fields.executionId === runId ||
+             // Also check jobId and stepId for drill-down capability
+             log.fields.jobId?.toString().startsWith(runId);
+    });
 
-    // Filter by level if specified
-    let filtered = logs;
-    if (options?.level && options.level !== 'all') {
-      filtered = logs.filter((log) => log.level === options.level);
-    }
+    // Sort by timestamp (newest first)
+    const sortedLogs = filteredLogs.sort((a, b) => b.timestamp - a.timestamp);
 
     // Apply pagination
-    const offset = options?.offset ?? 0;
-    const limit = options?.limit ?? 100;
+    const paginatedLogs = sortedLogs.slice(offset, offset + limit);
 
-    return filtered.slice(offset, offset + limit);
+    // Convert to expected format
+    return paginatedLogs.map(log => ({
+      timestamp: new Date(log.timestamp).toISOString(),
+      level: log.level,
+      message: log.message,
+      context: log.fields,
+    }));
   }
 }

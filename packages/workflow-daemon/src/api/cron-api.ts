@@ -119,17 +119,22 @@ export function registerCronAPI(options: CronAPIOptions): void {
       const registeredJobs = cronScheduler.getRegisteredJobs();
 
       // Map CronScheduler jobs to CronInfo
-      const crons: CronInfo[] = registeredJobs.map(job => ({
-        id: job.id,
-        schedule: job.schedule,
-        jobType: job.handler,
-        timezone: job.timezone,
-        enabled: job.enabled,
-        // TODO: Track lastRun and nextRun times
-        lastRun: undefined,
-        nextRun: undefined,
-        pluginId: job.source === 'plugin' ? job.id.split(':')[0] : undefined,
-      }));
+      const crons: CronInfo[] = registeredJobs.map(job => {
+        // Get next run time from scheduler
+        const nextRun = cronScheduler.getNextRunTime(job.id);
+
+        return {
+          id: job.id,
+          schedule: job.schedule,
+          jobType: job.handler,
+          timezone: job.timezone,
+          enabled: job.enabled,
+          // TODO: Track lastRun from execution history
+          lastRun: undefined,
+          nextRun: nextRun ?? undefined,
+          pluginId: job.source === 'plugin' ? job.id.split(':')[1] : undefined,
+        };
+      });
 
       const response: CronListResponse = {
         crons,

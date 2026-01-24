@@ -4,6 +4,7 @@
  */
 
 import cron from 'node-cron';
+import { CronExpressionParser } from 'cron-parser';
 import type { ILogger } from '@kb-labs/core-platform';
 import type { JobBroker } from './job-broker.js';
 import type { WorkflowEngine } from '@kb-labs/workflow-engine';
@@ -464,6 +465,37 @@ export class CronScheduler {
       timezone: job.timezone,
       source: job.source,
     });
+  }
+
+  /**
+   * Get next scheduled run time for a cron job.
+   * Returns null if job doesn't exist or has invalid cron expression.
+   */
+  getNextRunTime(cronJobId: string): Date | null {
+    const job = this.registeredJobs.get(cronJobId);
+    if (!job) {
+      return null;
+    }
+
+    // Return null for empty schedule
+    if (!job.schedule || job.schedule.trim() === '') {
+      return null;
+    }
+
+    try {
+      // Parse cron expression to get next execution time
+      const interval = CronExpressionParser.parse(job.schedule, {
+        tz: job.timezone,
+        currentDate: new Date(),
+      });
+      return interval.next().toDate();
+    } catch (error) {
+      this.logger.error('Failed to parse cron expression', error instanceof Error ? error : undefined, {
+        cronJobId,
+        schedule: job.schedule,
+      });
+      return null;
+    }
   }
 
   /**

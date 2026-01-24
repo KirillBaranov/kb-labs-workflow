@@ -97,7 +97,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
 
   // Create JobBroker
   bootstrapLogger.info('Creating JobBroker');
-  const jobBroker = new JobBroker(engine, platform.logger);
+  const jobBroker = new JobBroker(engine, platform.logger, platform);
 
   // Create CronScheduler (before HTTP server so it can be exposed via API)
   bootstrapLogger.info('Creating CronScheduler');
@@ -128,6 +128,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   const workflowService = new WorkflowService({
     cliApi,
     platform,
+    workspaceRoot: repoRoot,
   });
 
   // Create HTTP API server (pass cronDiscovery for refresh endpoint)

@@ -115,7 +115,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
       const { id } = request.params;
       const { input, trigger } = request.body || {};
 
-      // Get workflow spec
+      // Get workflow runtime (includes spec in input field)
       const workflow = await workflowService.get(id);
 
       if (!workflow) {
@@ -126,9 +126,11 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
         };
       }
 
-      // Execute workflow
-      const run = await engine.execute({
-        spec: workflow.spec,
+      // WorkflowRuntime.input contains the full WorkflowSpec
+      const spec = workflow.input as any;
+
+      // Execute workflow using runFromSpec (correct WorkflowEngine API)
+      const run = await engine.runFromSpec(spec, {
         trigger: {
           type: trigger?.type || 'api',
           user: trigger?.user,

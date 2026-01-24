@@ -30,6 +30,7 @@
     "@kb-labs/workflow-contracts": "workspace:*",
     "@kb-labs/workflow-engine": "workspace:*",
     "@kb-labs/workflow-runtime": "workspace:*",
+    "cron-parser": "^5.5.0",
     "fastify": "^4.24.3",
     "node-cron": "^4.2.1",
     "pino": "^8.16.2",
