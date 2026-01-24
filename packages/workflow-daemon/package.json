@@ -16,7 +16,8 @@
     "test": "vitest run",
     "type-check": "tsc --noEmit",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@fastify/cors": "^8.4.0",
@@ -31,19 +32,23 @@
     "@kb-labs/workflow-engine": "workspace:*",
     "@kb-labs/workflow-runtime": "workspace:*",
     "cron-parser": "^5.5.0",
-    "fastify": "^4.24.3",
+    "fastify": "^4.28.0",
     "node-cron": "^4.2.1",
-    "pino": "^8.16.2",
+    "pino": "^9.0.0",
     "yaml": "^2.8.0"
   },
   "devDependencies": {
     "@kb-labs/devkit": "link:../../../kb-labs-devkit",
-    "@types/node": "^20.10.0",
+    "@types/node": "^24.3.3",
     "@types/node-cron": "^3.0.11",
     "rimraf": "^6.0.1",
-    "tsup": "^8",
+    "tsup": "^8.5.0",
     "tsx": "^4.20.5",
-    "typescript": "^5",
+    "typescript": "^5.6.3",
     "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
   }
 }

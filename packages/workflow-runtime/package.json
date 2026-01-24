@@ -25,7 +25,8 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint . --ignore-pattern 'dist/**'",
-    "lint:fix": "eslint . --fix --ignore-pattern 'dist/**'"
+    "lint:fix": "eslint . --fix --ignore-pattern 'dist/**'",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@kb-labs/cli-api": "link:../../../kb-labs-cli/packages/cli-api",
@@ -38,7 +39,7 @@
     "@kb-labs/workflow-contracts": "workspace:*",
     "execa": "^8.0.0",
     "fast-glob": "^3.3.2",
-    "pino": "^9.4.0",
+    "pino": "^9.0.0",
     "yaml": "^2.8.0",
     "zod": "^3.23.8"
   },
@@ -53,5 +54,9 @@
     "typescript": "^5.6.3",
     "vitest": "^3.2.4"
   },
-  "private": true
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
 }
