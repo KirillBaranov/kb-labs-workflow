@@ -264,11 +264,33 @@ export class SandboxRunner implements Runner {
     signal?: AbortSignal
   ): StepExecutionResult {
     if (result.ok) {
-      context.logger.info('Plugin handler completed', {
+      // Include stdout/stderr in completion log if present
+      const data = result.data as any;
+
+      // DEBUG: Log what we received
+      context.logger.debug('mapExecutionResult received data', {
+        stepId: context.stepId,
+        executionId,
+        dataType: typeof data,
+        dataKeys: data && typeof data === 'object' ? Object.keys(data) : [],
+        hasStdout: !!(data && typeof data === 'object' && data.stdout),
+        hasStderr: !!(data && typeof data === 'object' && data.stderr),
+      });
+
+      const logMeta: Record<string, unknown> = {
         stepId: context.stepId,
         executionId,
         executionTimeMs: result.executionTimeMs,
-      })
+      };
+
+      // Add stdout/stderr to log metadata if available
+      if (data && typeof data === 'object') {
+        if (data.stdout) logMeta.stdout = data.stdout;
+        if (data.stderr) logMeta.stderr = data.stderr;
+        if (data.exitCode !== undefined) logMeta.exitCode = data.exitCode;
+      }
+
+      context.logger.info('Plugin handler completed', logMeta);
 
       return {
         status: 'success',
@@ -305,9 +327,10 @@ export class SandboxRunner implements Runner {
   /**
    * Resolve command reference to plugin handler.
    *
-   * Supports two formats:
+   * Supports three formats:
    * - `plugin:id/handler` - workflow handler (native)
    * - `command:name` - CLI command (via adapter)
+   * - `builtin:shell` - built-in shell execution
    */
   private async resolveCommand(
     spec: StepSpec,
@@ -324,7 +347,11 @@ export class SandboxRunner implements Runner {
       return this.resolveCLICommand(uses, input, request)
     }
 
-    throw new Error(`Unsupported uses format: ${uses}. Expected "plugin:..." or "command:..."`)
+    if (uses === 'builtin:shell') {
+      return this.resolveBuiltinShell(spec)
+    }
+
+    throw new Error(`Unsupported uses format: ${uses}. Expected "plugin:...", "command:...", or "builtin:shell"`)
   }
 
   /**
@@ -428,6 +455,48 @@ export class SandboxRunner implements Runner {
       argv: [],
       flags: input || {},
       cwd: request.workspace || this.workspaceRoot,
+    }
+  }
+
+  /**
+   * Resolve builtin:shell to built-in shell handler.
+   *
+   * Returns a resolution pointing to the builtin-handlers/shell.js file
+   * that will be executed through ExecutionBackend.
+   */
+  private async resolveBuiltinShell(
+    spec: StepSpec,
+  ): Promise<PluginCommandResolution> {
+    // Use import.meta.resolve to find @kb-labs/workflow-builtins package
+    // This supports ES module exports properly
+    const builtinsUrl = await import.meta.resolve('@kb-labs/workflow-builtins')
+    // Convert file:// URL to path and remove /dist/index.js to get package root
+    const builtinsPath = builtinsUrl.replace('file://', '').replace('/dist/index.js', '')
+
+    // Extract command from spec.with
+    const withBlock = (spec.with ?? {}) as Record<string, unknown>
+    const command = withBlock.command ?? withBlock.run ?? withBlock.script
+
+    if (typeof command !== 'string') {
+      throw new Error(
+        'builtin:shell requires "with.command" (or with.run/with.script) to be a string',
+      )
+    }
+
+    // Build shell handler input
+    const shellInput = {
+      command,
+      env: typeof withBlock.env === 'object' ? (withBlock.env as Record<string, string>) : undefined,
+      timeout: typeof withBlock.timeout === 'number' ? withBlock.timeout : undefined,
+      throwOnError: typeof withBlock.throwOnError === 'boolean' ? withBlock.throwOnError : false,
+    }
+
+    return {
+      pluginId: '@kb-labs/workflow-builtins',
+      pluginVersion: '0.1.0',
+      pluginRoot: builtinsPath,
+      handler: 'dist/shell.js', // Relative path from pluginRoot
+      input: shellInput,
     }
   }
 }

@@ -33,6 +33,7 @@
     "@kb-labs/plugin-contracts": "link:../../../kb-labs-plugin/packages/plugin-contracts",
     "@kb-labs/plugin-execution": "link:../../../kb-labs-plugin/packages/plugin-execution",
     "@kb-labs/workflow-artifacts": "workspace:*",
+    "@kb-labs/workflow-builtins": "workspace:^",
     "@kb-labs/workflow-constants": "workspace:*",
     "@kb-labs/workflow-contracts": "workspace:*",
     "execa": "^8.0.0",

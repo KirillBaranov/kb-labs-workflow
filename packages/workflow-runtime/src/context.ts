@@ -1,4 +1,3 @@
-import pino from 'pino'
 import type {
   ArtifactClient,
   RuntimeEvents,
@@ -16,34 +15,8 @@ export interface CreateStepContextInput {
   secrets?: Record<string, string>
   artifacts?: ArtifactClient
   events?: RuntimeEvents
-  logger?: RuntimeLogger
+  logger: RuntimeLogger // Required - must use platform.logger
   trace?: RuntimeTrace
-}
-
-function normalizeLogger(logger?: RuntimeLogger): RuntimeLogger {
-  if (logger) {
-    return logger
-  }
-
-  const instance = pino({
-    name: 'workflow-step',
-    level: process.env.LOG_LEVEL ?? 'info',
-  })
-
-  return {
-    debug(message, meta) {
-      instance.debug(meta ?? {}, message)
-    },
-    info(message, meta) {
-      instance.info(meta ?? {}, message)
-    },
-    warn(message, meta) {
-      instance.warn(meta ?? {}, message)
-    },
-    error(message, meta) {
-      instance.error(meta ?? {}, message)
-    },
-  }
 }
 
 export function createStepContext(
@@ -58,7 +31,7 @@ export function createStepContext(
     secrets: input.secrets ?? {},
     artifacts: input.artifacts,
     events: input.events,
-    logger: normalizeLogger(input.logger),
+    logger: input.logger, // Use provided logger (platform.logger)
     trace: input.trace,
   }
 }
