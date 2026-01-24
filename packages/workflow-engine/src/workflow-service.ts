@@ -73,6 +73,9 @@ export interface WorkflowServiceOptions {
 
   /** Storage directory for standalone workflows */
   workflowStorageDir?: string;
+
+  /** Workspace root directory (default: process.cwd()) */
+  workspaceRoot?: string;
 }
 
 /**
@@ -97,6 +100,7 @@ export class WorkflowService {
     this.repository = new WorkflowRepository({
       platform: options.platform,
       storageDir: options.workflowStorageDir,
+      workspaceRoot: options.workspaceRoot,
     });
   }
 
