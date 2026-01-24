@@ -1,5 +1,5 @@
 import { defineConfig } from 'tsup';
-import nodePreset from '@kb-labs/devkit/tsup/node.js';
+import nodePreset from '@kb-labs/devkit/tsup/node';
 import { readFileSync } from 'node:fs';
 
 // Read package.json at build time
