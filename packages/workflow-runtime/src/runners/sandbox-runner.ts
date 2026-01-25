@@ -285,9 +285,9 @@ export class SandboxRunner implements Runner {
 
       // Add stdout/stderr to log metadata if available
       if (data && typeof data === 'object') {
-        if (data.stdout) logMeta.stdout = data.stdout;
-        if (data.stderr) logMeta.stderr = data.stderr;
-        if (data.exitCode !== undefined) logMeta.exitCode = data.exitCode;
+        if (data.stdout) {logMeta.stdout = data.stdout;}
+        if (data.stderr) {logMeta.stderr = data.stderr;}
+        if (data.exitCode !== undefined) {logMeta.exitCode = data.exitCode;}
       }
 
       context.logger.info('Plugin handler completed', logMeta);
