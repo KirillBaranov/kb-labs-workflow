@@ -22,9 +22,9 @@ export default defineHandler({
     const { source, status, tags } = input.query || {};
 
     const params = new URLSearchParams();
-    if (source) params.append('source', source);
-    if (status) params.append('status', status);
-    if (tags) params.append('tags', tags);
+    if (source) {params.append('source', source);}
+    if (status) {params.append('status', status);}
+    if (tags) {params.append('tags', tags);}
 
     const queryString = params.toString();
     const url = `${daemonUrl}/api/v1/workflows${queryString ? `?${queryString}` : ''}`;

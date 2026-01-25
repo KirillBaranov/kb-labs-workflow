@@ -39,10 +39,10 @@ export default defineHandler({
 
     // Build query string
     const params = new URLSearchParams();
-    if (type) params.set('type', type);
-    if (status) params.set('status', status);
-    if (limit) params.set('limit', limit);
-    if (offset) params.set('offset', offset);
+    if (type) {params.set('type', type);}
+    if (status) {params.set('status', status);}
+    if (limit) {params.set('limit', limit);}
+    if (offset) {params.set('offset', offset);}
 
     const queryString = params.toString();
     const url = `${daemonUrl}/api/v1/jobs${queryString ? `?${queryString}` : ''}`;
