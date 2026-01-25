@@ -1,7 +1,7 @@
 import type { ResolvedWorkflow, WorkflowRegistry } from './types'
 import type { CliAPI } from '@kb-labs/cli-api'
-import { WorkspaceWorkflowRegistry } from './workspace-registry'
-import { RemoteWorkflowRegistry } from './remote-registry'
+import type { WorkspaceWorkflowRegistry } from './workspace-registry'
+import type { RemoteWorkflowRegistry } from './remote-registry'
 import { extractWorkflows } from './plugin-workflows'
 import { WorkflowRegistryError } from './errors'
 
