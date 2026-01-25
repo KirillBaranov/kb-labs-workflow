@@ -277,7 +277,7 @@ export async function createServer(options: CreateServerOptions) {
 }
 
 function mapPriority(priority: number): 'low' | 'normal' | 'high' {
-  if (priority <= 3) return 'low';
-  if (priority <= 7) return 'normal';
+  if (priority <= 3) {return 'low';}
+  if (priority <= 7) {return 'normal';}
   return 'high';
 }

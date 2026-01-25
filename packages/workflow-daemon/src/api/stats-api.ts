@@ -32,7 +32,7 @@ export function registerStatsAPI(options: RegisterStatsAPIOptions): void {
   server.get('/api/v1/stats', async (request, reply) => {
     try {
       // Get workflow stats
-      let workflowStats = { total: 0, active: 0, inactive: 0 };
+      const workflowStats = { total: 0, active: 0, inactive: 0 };
       if (workflowService) {
         const workflows = await workflowService.listAll({});
         workflowStats.total = workflows.length;
@@ -50,7 +50,7 @@ export function registerStatsAPI(options: RegisterStatsAPIOptions): void {
       };
 
       // Get cron stats
-      let cronStats = { total: 0, enabled: 0, disabled: 0 };
+      const cronStats = { total: 0, enabled: 0, disabled: 0 };
       if (cronScheduler) {
         const cronJobs = cronScheduler.getRegisteredJobs();
         cronStats.total = cronJobs.length;

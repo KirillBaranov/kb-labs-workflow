@@ -208,7 +208,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
  * Map priority number (1-10) to JobBroker priority ('low' | 'normal' | 'high')
  */
 function mapPriority(priority: number): 'low' | 'normal' | 'high' {
-  if (priority <= 3) return 'low';
-  if (priority <= 7) return 'normal';
+  if (priority <= 3) {return 'low';}
+  if (priority <= 7) {return 'normal';}
   return 'high';
 }
