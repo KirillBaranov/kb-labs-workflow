@@ -72,8 +72,8 @@ export function evaluateExpression(
   }
 
   // Handle boolean literals (before equality checks)
-  if (trimmed === 'true') return true
-  if (trimmed === 'false') return false
+  if (trimmed === 'true') {return true}
+  if (trimmed === 'false') {return false}
 
   // Handle equality/inequality
   if (trimmed.includes('==')) {
@@ -192,8 +192,8 @@ function resolveValue(path: string, context: ExpressionContext): unknown {
   }
 
   // Try to parse as boolean
-  if (cleanPath === 'true') return true
-  if (cleanPath === 'false') return false
+  if (cleanPath === 'true') {return true}
+  if (cleanPath === 'false') {return false}
 
   // Literal value
   return cleanPath
