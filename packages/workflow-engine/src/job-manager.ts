@@ -294,12 +294,12 @@ export class JobManager implements IJobScheduler {
     const records: JobRecord[] = [];
     for (const key of keys) {
       const data = await this.cache.get<JobRecord>(key);
-      if (!data) continue;
+      if (!data) {continue;}
 
       // Apply filters
-      if (filter.type && data.type !== filter.type) continue;
-      if (filter.tenantId && data.tenantId !== filter.tenantId) continue;
-      if (filter.status && data.status !== filter.status) continue;
+      if (filter.type && data.type !== filter.type) {continue;}
+      if (filter.tenantId && data.tenantId !== filter.tenantId) {continue;}
+      if (filter.status && data.status !== filter.status) {continue;}
 
       records.push(data);
     }

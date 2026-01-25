@@ -383,7 +383,7 @@ export class WorkflowEngine {
     let resumedCount = 0
     for (const runId of runIds) {
       const run = await this.stateStore.getRun(runId)
-      if (!run) continue
+      if (!run) {continue}
 
       for (const job of run.jobs) {
         if (job.status === 'interrupted') {
@@ -789,25 +789,25 @@ export class WorkflowEngine {
     // Aggregate metrics from all runs
     for (const runId of runIds) {
       const run = await this.stateStore.getRun(runId)
-      if (!run) continue
+      if (!run) {continue}
 
       metrics.runs.total++
 
       // Count run status
-      if (run.status === 'queued') metrics.runs.queued++
-      else if (run.status === 'running') metrics.runs.running++
-      else if (run.status === 'success') metrics.runs.completed++
-      else if (run.status === 'failed') metrics.runs.failed++
-      else if (run.status === 'cancelled') metrics.runs.cancelled++
-      else if (run.status === 'dlq') metrics.runs.dlq++
+      if (run.status === 'queued') {metrics.runs.queued++}
+      else if (run.status === 'running') {metrics.runs.running++}
+      else if (run.status === 'success') {metrics.runs.completed++}
+      else if (run.status === 'failed') {metrics.runs.failed++}
+      else if (run.status === 'cancelled') {metrics.runs.cancelled++}
+      else if (run.status === 'dlq') {metrics.runs.dlq++}
 
       // Count job statuses
       for (const job of run.jobs) {
         metrics.jobs.total++
-        if (job.status === 'queued') metrics.jobs.queued++
-        else if (job.status === 'running') metrics.jobs.running++
-        else if (job.status === 'success') metrics.jobs.completed++
-        else if (job.status === 'failed') metrics.jobs.failed++
+        if (job.status === 'queued') {metrics.jobs.queued++}
+        else if (job.status === 'running') {metrics.jobs.running++}
+        else if (job.status === 'success') {metrics.jobs.completed++}
+        else if (job.status === 'failed') {metrics.jobs.failed++}
       }
     }
 

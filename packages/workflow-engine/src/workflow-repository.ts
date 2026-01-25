@@ -133,7 +133,7 @@ export class WorkflowRepository {
     for (const filename of allFiles) {
       const id = filename.replace(/\.(yaml|yml)$/, '');
       const stored = await this.loadWorkflow(id);
-      if (!stored) continue;
+      if (!stored) {continue;}
 
       // Apply filters
       if (options?.status && stored.status !== options.status) {
