@@ -83,7 +83,14 @@ jobs: {}
 version: 1.0.0
 on:
   manual: true
-jobs: {}
+jobs:
+  main:
+    runsOn: local
+    steps:
+      - name: Test
+        uses: builtin:shell
+        with:
+          command: echo "test"
 `
     const testFile = join(tempDir, 'test.yml')
     await writeFile(testFile, workflowContent)
@@ -92,6 +99,9 @@ jobs: {}
     await new Promise((resolve) => {
       setTimeout(resolve, 100)
     })
+
+    // Refresh registry to pick up new file
+    await registry.refresh()
 
     const resolved = await registry.resolve('workspace:test')
     expect(resolved).not.toBeNull()
