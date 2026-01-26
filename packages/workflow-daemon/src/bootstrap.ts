@@ -13,6 +13,7 @@ import { CronScheduler } from './cron-scheduler.js';
 import { CronDiscovery } from './cron-discovery.js';
 import { createServer } from './server.js';
 import { createCliAPI } from '@kb-labs/cli-api';
+// @ts-expect-error - core-sys missing type declarations
 import { findRepoRoot } from '@kb-labs/core-sys';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
@@ -110,7 +111,8 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
     cache: platform.cache,
     events: platform.eventBus,
     logger: platform.logger,
-    executionBackend: platform.executionBackend,
+    // Cast to any - IExecutionBackend doesn't have health/stats but that's okay
+    executionBackend: platform.executionBackend as any,
     workspaceRoot: repoRoot, // Pass monorepo root for plugin execution context
   });
 
@@ -177,7 +179,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   bootstrapLogger.info('Creating WorkflowWorker');
   const worker = await createWorkflowWorker({
     engine,
-    executionBackend: platform.executionBackend,
+    executionBackend: platform.executionBackend as any, // Cast - IExecutionBackend missing health/stats
     cliApi,
     logger: platform.logger,
     analytics: platform.analytics,
@@ -192,9 +194,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   bootstrapLogger.info('Starting WorkflowWorker');
   // Start worker in background (non-blocking)
   worker.start().catch(error => {
-    bootstrapLogger.error('Worker crashed - shutting down daemon', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    bootstrapLogger.error('Worker crashed - shutting down daemon', error instanceof Error ? error : undefined);
     // Trigger graceful shutdown - daemon cannot function without worker
     process.kill(process.pid, 'SIGTERM');
   });

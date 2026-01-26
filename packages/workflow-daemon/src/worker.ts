@@ -145,8 +145,8 @@ export async function createWorkflowWorker(
               jobId: job.id,
               stepId: step.id,
               attempt: 1,
-              env: run.env || {},
-              secrets: run.secrets || {},
+              env: run.env || ({} as Record<string, string>),
+              secrets: {} as Record<string, string>, // TODO: map run.secrets array to Record
               logger: runtimeLogger,
             },
             workspace: workspaceRoot,
@@ -166,8 +166,8 @@ export async function createWorkflowWorker(
             throw error;
           }
 
-          // Mark step as completed (sets finishedAt timestamp + output)
-          await engine.markStepCompleted(run.id, job.id, step.id, result.output);
+          // Mark step as completed (sets finishedAt timestamp + outputs)
+          await engine.markStepCompleted(run.id, job.id, step.id, result.status === 'success' ? result.outputs : undefined);
 
           logger.info('Step completed', {
             runId: run.id,
