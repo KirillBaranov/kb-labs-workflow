@@ -6,7 +6,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { JobBroker } from '../job-broker.js';
 import type { ILogger } from '@kb-labs/core-platform';
-import type { JobLogsResponse, LogEntry } from '@kb-labs/workflow-contracts';
+import type { JobLogsResponse } from '@kb-labs/workflow-contracts';
 
 export interface RegisterLogsAPIOptions {
   server: FastifyInstance;

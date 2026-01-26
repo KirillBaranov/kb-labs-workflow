@@ -15,6 +15,8 @@ import { createServer } from './server.js';
 import { createCliAPI } from '@kb-labs/cli-api';
 import { findRepoRoot } from '@kb-labs/core-sys';
 import { randomUUID } from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
 import type { WorkflowWorker } from './worker.js';
 import type { FastifyInstance } from 'fastify';
 
@@ -28,11 +30,11 @@ let cronSchedulerInstance: CronScheduler | null = null;
  * Initializes platform, engine, worker, and HTTP server.
  */
 export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
-  // Load .env file if present
-  loadEnvFile(cwd);
-
-  // Detect repo root
+  // Detect repo root first
   const repoRoot = await findRepoRoot(cwd);
+
+  // Load .env file from repo root (not cwd)
+  loadEnvFile(repoRoot);
 
   // Initialize platform adapters from kb.config.json
   await initializePlatform(repoRoot);
@@ -55,10 +57,31 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
 
   // Initialize CLI API for plugin discovery
   bootstrapLogger.info('Initializing CLI API for plugin discovery');
+
+  // Collect all kb-labs-* directories as roots for discovery (same as REST API)
+  const discoveryRoots = [repoRoot];
+  try {
+    const entries = await fs.readdir(repoRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name.startsWith('kb-labs-')) {
+        const repoPath = path.join(repoRoot, entry.name);
+        discoveryRoots.push(repoPath);
+      }
+    }
+    bootstrapLogger.info('Discovery roots configured', {
+      roots: discoveryRoots,
+      rootsCount: discoveryRoots.length,
+    });
+  } catch (error) {
+    bootstrapLogger.warn('Failed to collect discovery roots', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   const cliApi = await createCliAPI({
     discovery: {
       strategies: ['workspace', 'pkg', 'dir', 'file'],
-      roots: [repoRoot],
+      roots: discoveryRoots,
       allowDowngrade: false,
     },
     cache: {

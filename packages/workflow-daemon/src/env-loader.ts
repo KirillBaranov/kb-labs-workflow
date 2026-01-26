@@ -49,7 +49,7 @@ export function loadEnvFile(cwd: string): void {
         process.env[key] = unquotedValue;
       }
     }
-  } catch (error) {
+  } catch (_error) {
     // Silently ignore .env loading errors
     // Not critical for daemon operation
   }

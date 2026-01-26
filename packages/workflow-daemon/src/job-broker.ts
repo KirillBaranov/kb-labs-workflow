@@ -44,6 +44,15 @@ export class JobBroker {
     });
 
     // Convert to WorkflowSpec
+    // Handler can be in format:
+    // - "command:name" for CLI commands (e.g., "command:mind:rag-index")
+    // - "plugin:id/handler" for workflow handlers
+    // - "builtin:shell" for shell execution
+    // If no prefix, assume it's a CLI command for backward compatibility
+    const uses = request.handler.includes(':')
+      ? request.handler
+      : `command:${request.handler}`;
+
     const spec: WorkflowSpec = {
       name: `job-${request.handler}`,
       version: '1.0.0',
@@ -55,7 +64,7 @@ export class JobBroker {
             {
               id: 'execute',
               name: 'Execute handler',
-              uses: `plugin:${request.handler}`,
+              uses,
               with: request.input ?? {},
             },
           ],

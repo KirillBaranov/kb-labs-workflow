@@ -12,8 +12,6 @@ import type { CronScheduler } from './cron-scheduler.js';
 import {
   PluginCronJobSchema,
   UserCronJobSchema,
-  type PluginCronJob,
-  type UserCronJob,
 } from '@kb-labs/workflow-contracts';
 
 export interface CronDiscoveryOptions {
@@ -69,15 +67,16 @@ export class CronDiscovery {
     try {
       const plugins = await this.cliApi.listPlugins();
 
-      for (const plugin of plugins) {
-        try {
+      // Process all plugins in parallel for better performance
+      const results = await Promise.allSettled(
+        plugins.map(async (plugin) => {
           // Get plugin manifest
           const manifest = await this.cliApi.getPluginManifest(plugin.id);
 
           // Check if manifest has cron section
           const cronSection = (manifest as any).cron;
           if (!cronSection || !Array.isArray(cronSection)) {
-            continue;
+            return 0;
           }
 
           this.logger.debug('Found cron section in plugin manifest', {
@@ -86,11 +85,12 @@ export class CronDiscovery {
           });
 
           // Validate and register each cron job
+          let pluginCount = 0;
           for (const jobDef of cronSection) {
             try {
               const validated = PluginCronJobSchema.parse(jobDef);
               this.scheduler.registerPluginJob(plugin.id, validated);
-              count++;
+              pluginCount++;
             } catch (error) {
               this.logger.warn('Invalid plugin cron job definition', {
                 pluginId: plugin.id,
@@ -99,10 +99,17 @@ export class CronDiscovery {
               });
             }
           }
-        } catch (error) {
+          return pluginCount;
+        })
+      );
+
+      // Sum up counts from successful results
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          count += result.value;
+        } else {
           this.logger.warn('Failed to process plugin manifest', {
-            pluginId: plugin.id,
-            error: error instanceof Error ? error.message : String(error),
+            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
           });
         }
       }
@@ -134,16 +141,18 @@ export class CronDiscovery {
       // Read all files in directory
       const files = await readdir(jobsDir);
 
-      for (const file of files) {
-        const filePath = join(jobsDir, file);
+      // Filter YAML files
+      const yamlFiles = files.filter((file) => {
         const ext = extname(file);
+        return ext === '.yml' || ext === '.yaml';
+      });
 
-        // Only process .yml and .yaml files
-        if (ext !== '.yml' && ext !== '.yaml') {
-          continue;
-        }
+      // Process all YAML files in parallel
+      const results = await Promise.allSettled(
+        yamlFiles.map(async (file) => {
+          const filePath = join(jobsDir, file);
+          const ext = extname(file);
 
-        try {
           const content = await readFile(filePath, 'utf-8');
           const parsed = YAML.parse(content);
 
@@ -154,16 +163,23 @@ export class CronDiscovery {
           if (validated.autoStart) {
             const fileName = basename(file, ext);
             this.scheduler.registerUserJob(fileName, validated);
-            count++;
+            return 1;
           } else {
             this.logger.debug('Skipping user cron job (autoStart: false)', {
               file,
             });
+            return 0;
           }
-        } catch (error) {
+        })
+      );
+
+      // Sum up counts from successful results
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          count += result.value;
+        } else {
           this.logger.warn('Failed to parse user cron job file', {
-            file,
-            error: error instanceof Error ? error.message : String(error),
+            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
           });
         }
       }

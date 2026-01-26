@@ -6,7 +6,7 @@
 import type { WorkflowEngine } from '@kb-labs/workflow-engine';
 import type { ExecutionBackend } from '@kb-labs/plugin-execution';
 import type { CliAPI } from '@kb-labs/cli-api';
-import type { ILogger } from '@kb-labs/core-platform';
+import type { ILogger, IAnalytics } from '@kb-labs/core-platform';
 import { SandboxRunner } from '@kb-labs/workflow-runtime';
 
 export interface CreateWorkflowWorkerOptions {
@@ -19,7 +19,7 @@ export interface CreateWorkflowWorkerOptions {
   /** Default timeout for step execution (ms). Default: 120000 (2 minutes) */
   defaultTimeout?: number;
   /** Platform analytics adapter (OPTIONAL) */
-  analytics?: import('@kb-labs/core-platform').IAnalytics;
+  analytics?: IAnalytics;
 }
 
 export interface WorkflowWorker {
@@ -119,6 +119,11 @@ export async function createWorkflowWorker(
     const jobPromise = (async () => {
       try {
         // Execute job steps using SandboxRunner
+        // IMPORTANT: Steps MUST run sequentially because:
+        // - Step outputs are inputs for next steps
+        // - Steps may have side effects that depend on order
+        // - Workflow semantics require sequential execution
+        /* eslint-disable no-await-in-loop */
         for (const step of job.steps) {
           if (step.status === 'success') {
             continue; // Skip already completed steps
@@ -170,6 +175,7 @@ export async function createWorkflowWorker(
             stepId: step.id,
           });
         }
+        /* eslint-enable no-await-in-loop */
 
         // Mark job as completed
         await engine.markJobCompleted(run.id, job.id);
@@ -224,6 +230,8 @@ export async function createWorkflowWorker(
    * Worker loop - continuously processes jobs from the queue.
    */
   async function workerLoop(): Promise<void> {
+    // IMPORTANT: This is a polling loop, must run sequentially
+    /* eslint-disable no-await-in-loop */
     while (isRunning && !stopRequested) {
       try {
         const processed = await processJob();
@@ -244,6 +252,7 @@ export async function createWorkflowWorker(
         await sleep(5000); // Wait longer on error
       }
     }
+    /* eslint-enable no-await-in-loop */
 
     logger.info('Worker loop stopped');
   }
@@ -309,13 +318,15 @@ export async function createWorkflowWorker(
               count: runningJobs.size,
             });
 
-            // Mark unfinished jobs as interrupted
-            for (const [jobKey] of runningJobs) {
-              const [runId, jobId] = jobKey.split(':');
-              if (runId && jobId) {
-                await engine.markJobInterrupted(runId, jobId);
-              }
-            }
+            // Mark unfinished jobs as interrupted (parallel for speed)
+            await Promise.all(
+              Array.from(runningJobs.keys()).map(async (jobKey) => {
+                const [runId, jobId] = jobKey.split(':');
+                if (runId && jobId) {
+                  await engine.markJobInterrupted(runId, jobId);
+                }
+              })
+            );
           } else {
             logger.info('All in-flight jobs completed gracefully');
           }
@@ -338,5 +349,7 @@ export async function createWorkflowWorker(
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise(resolve => {
+    setTimeout(resolve, ms);
+  });
 }

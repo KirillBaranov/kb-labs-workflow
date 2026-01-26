@@ -5,7 +5,7 @@
 
 import cron from 'node-cron';
 import { CronExpressionParser } from 'cron-parser';
-import type { ILogger } from '@kb-labs/core-platform';
+import type { ILogger, IAnalytics } from '@kb-labs/core-platform';
 import type { JobBroker } from './job-broker.js';
 import type { WorkflowEngine } from '@kb-labs/workflow-engine';
 import type {
@@ -21,7 +21,7 @@ export interface CronSchedulerOptions {
   logger: ILogger;
   timezone?: string;
   /** Platform analytics adapter (OPTIONAL) */
-  analytics?: import('@kb-labs/core-platform').IAnalytics;
+  analytics?: IAnalytics;
 }
 
 /**
@@ -38,7 +38,7 @@ export class CronScheduler {
   private readonly workflowEngine: WorkflowEngine;
   private readonly logger: ILogger;
   private readonly defaultTimezone: string;
-  private readonly analytics?: import('@kb-labs/core-platform').IAnalytics;
+  private readonly analytics?: import('@kb-labs/core-platform').IAnalytics; // eslint-disable-line @typescript-eslint/consistent-type-imports
 
   private readonly registeredJobs = new Map<string, RegisteredCronJob>();
   private readonly scheduledTasks = new Map<string, cron.ScheduledTask>();

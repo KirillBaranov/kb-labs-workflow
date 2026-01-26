@@ -26,7 +26,7 @@ export interface RegisterStatsAPIOptions {
  * - GET /api/v1/stats - Get dashboard statistics
  */
 export function registerStatsAPI(options: RegisterStatsAPIOptions): void {
-  const { server, engine, jobBroker, workflowService, cronScheduler, logger } = options;
+  const { server, engine, jobBroker: _jobBroker, workflowService, cronScheduler, logger } = options;
 
   // GET /api/v1/stats - Dashboard statistics
   server.get('/api/v1/stats', async (request, reply) => {

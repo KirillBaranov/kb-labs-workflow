@@ -113,7 +113,8 @@ export function registerCronAPI(options: CronAPIOptions): void {
       return { error: 'Cron scheduler not available' };
     }
 
-    const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
+    const _tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
+    // TODO: Filter cron jobs by tenant when multi-tenancy is implemented
 
     try {
       const registeredJobs = cronScheduler.getRegisteredJobs();

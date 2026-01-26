@@ -36,12 +36,30 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
   server.post<{ Body: JobSubmissionRequest }>(
     '/api/v1/jobs',
     async (request, reply) => {
+      // TODO: Security - validate tenant ID from authenticated JWT token, not from headers
+      // Current implementation trusts x-tenant-id header which can be spoofed
+      // For production: implement auth middleware that extracts tenant from verified token
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
-      const { type, payload, priority, maxRetries, timeout, runAt, idempotencyKey } = request.body;
+      const { type, payload, priority } = request.body;
 
       if (!type) {
         reply.code(400);
         return { error: 'Missing required field: type' };
+      }
+
+      // Validate tenant ID format (alphanumeric, hyphens, underscores only) and length
+      if (!/^[a-zA-Z0-9_-]+$/.test(tenantId) || tenantId.length > 64) {
+        reply.code(400);
+        return { error: 'Invalid tenant ID format or length (max 64 chars)' };
+      }
+
+      // Note: Payload size is already validated by Fastify bodyLimit (1MB)
+      // No need to re-serialize the entire payload here
+
+      // Validate priority range
+      if (priority !== undefined && (priority < 1 || priority > 10)) {
+        reply.code(400);
+        return { error: 'Priority must be between 1 and 10' };
       }
 
       try {
@@ -60,10 +78,18 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
         logger.info('Job submitted', { jobId: run.id, type, tenantId });
         return response;
       } catch (error) {
-        logger.error('Job submission failed', error instanceof Error ? error : undefined);
+        // Log sanitized error details server-side (no sensitive data in logs)
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error('Job submission failed', {
+          error: sanitizeErrorMessage(errorMessage),
+          stack: error instanceof Error ? error.stack : undefined,
+          type,
+          tenantId,
+        });
         reply.code(500);
+        // Return sanitized error to client (no stack trace, no internal details)
         return {
-          error: error instanceof Error ? error.message : 'Job submission failed',
+          error: 'Job submission failed. Please check request and try again.',
         };
       }
     }
@@ -77,7 +103,14 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
     '/api/v1/jobs/:jobId',
     async (request, reply) => {
       const { jobId } = request.params;
+      // TODO: Security - validate tenant ID from authenticated JWT token, not from headers
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
+
+      // Validate tenant ID format and length
+      if (!/^[a-zA-Z0-9_-]+$/.test(tenantId) || tenantId.length > 64) {
+        reply.code(400);
+        return { error: 'Invalid tenant ID format or length (max 64 chars)' };
+      }
 
       try {
         const run = await engine.getRun(jobId);
@@ -87,7 +120,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
           return { error: 'Job not found' };
         }
 
-        // Map WorkflowRun to JobStatusInfo
+        // Map WorkflowRun to JobStatusInfo with full details
         const jobInfo: JobStatusInfo = {
           id: run.id,
           type: run.name, // WorkflowRun.name maps to job type
@@ -97,11 +130,35 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
           startedAt: run.startedAt,
           finishedAt: run.finishedAt,
           result: run.result,
-          error: run.error,
-          // TODO: Add priority, attempt, maxRetries, progress from run metadata
+          error: run.result?.error?.message,
         };
 
-        return jobInfo;
+        // Include detailed jobs and steps data for full inspection
+        const detailedResponse = {
+          ...jobInfo,
+          jobs: run.jobs?.map(job => ({
+            id: job.id,
+            name: job.jobName,
+            status: job.status,
+            startedAt: job.startedAt,
+            finishedAt: job.finishedAt,
+            durationMs: job.durationMs,
+            error: job.error?.message,
+            steps: job.steps?.map(step => ({
+              id: step.id,
+              name: step.name,
+              status: step.status,
+              handler: step.spec?.uses,
+              startedAt: step.startedAt,
+              finishedAt: step.finishedAt,
+              durationMs: step.durationMs,
+              outputs: step.outputs,
+              error: step.error,
+            })),
+          })),
+        };
+
+        return detailedResponse;
       } catch (error) {
         logger.error('Failed to get job status', error instanceof Error ? error : undefined);
         reply.code(500);
@@ -211,4 +268,22 @@ function mapPriority(priority: number): 'low' | 'normal' | 'high' {
   if (priority <= 3) {return 'low';}
   if (priority <= 7) {return 'normal';}
   return 'high';
+}
+
+/**
+ * Sanitize error message by removing potential sensitive data patterns
+ * (connection strings, API keys, tokens, passwords)
+ */
+function sanitizeErrorMessage(message: string): string {
+  return message
+    // Remove connection strings
+    .replace(/(?:mongodb|postgres|mysql|redis):\/\/[^\s]+/gi, '[CONNECTION_STRING]')
+    // Remove API keys (common patterns)
+    .replace(/(?:api[_-]?key|apikey|token)[=:]\s*[^\s&]+/gi, '[API_KEY]')
+    // Remove Bearer tokens
+    .replace(/bearer\s+[^\s]+/gi, 'Bearer [TOKEN]')
+    // Remove passwords
+    .replace(/(?:password|pwd)[=:]\s*[^\s&]+/gi, 'password=[REDACTED]')
+    // Remove JWT tokens
+    .replace(/eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g, '[JWT_TOKEN]');
 }

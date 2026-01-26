@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import type { WorkflowEngine } from '@kb-labs/workflow-engine';
 import type { ILogger } from '@kb-labs/core-platform';
 import type { JobStepsResponse, JobStepInfo } from '@kb-labs/workflow-contracts';
+import type { StepState, RunState } from '@kb-labs/workflow-constants';
 
 export interface RegisterStepsAPIOptions {
   server: FastifyInstance;
@@ -38,25 +39,40 @@ export function registerStepsAPI(options: RegisterStepsAPIOptions): void {
         return { ok: false, error: 'Job not found' };
       }
 
-      const steps: JobStepInfo[] =
-        run.steps?.map((step) => ({
-          name: step.name,
-          handler: step.handler,
-          status: step.status,
-          progress: step.progress,
-          startedAt: step.startedAt?.toISOString(),
-          finishedAt: step.finishedAt?.toISOString(),
-          durationMs: step.durationMs,
-          error: step.error,
-          output: step.output,
-        })) || [];
+      // Flatten all steps from all jobs into a single array
+      // WorkflowRun structure: run.jobs[].steps[]
+      const steps: JobStepInfo[] = [];
+      let currentStepIndex: number | undefined;
+      let stepCounter = 0;
+
+      for (const job of run.jobs || []) {
+        for (const step of job.steps || []) {
+          // Track current running step
+          if (step.status === 'running' && currentStepIndex === undefined) {
+            currentStepIndex = stepCounter;
+          }
+
+          steps.push({
+            name: step.name,
+            handler: step.spec?.uses,
+            status: mapStepStatus(step.status),
+            startedAt: step.startedAt,
+            finishedAt: step.finishedAt,
+            durationMs: step.durationMs,
+            error: step.error?.message,
+            output: step.outputs,
+          });
+
+          stepCounter++;
+        }
+      }
 
       const response: JobStepsResponse = {
         jobId,
-        workflowName: run.workflowName,
-        status: run.status,
+        workflowName: run.name,
+        status: mapRunStatus(run.status),
         steps,
-        currentStep: run.currentStepIndex,
+        currentStep: currentStepIndex,
       };
 
       return { ok: true, data: response };
@@ -71,4 +87,46 @@ export function registerStepsAPI(options: RegisterStepsAPIOptions): void {
   });
 
   logger.info('[steps-api] Job steps API endpoint registered');
+}
+
+/**
+ * Map StepState (workflow-constants) to JobStepInfo status
+ */
+function mapStepStatus(status: StepState): JobStepInfo['status'] {
+  switch (status) {
+    case 'queued':
+      return 'pending';
+    case 'running':
+      return 'running';
+    case 'success':
+      return 'completed';
+    case 'failed':
+      return 'failed';
+    case 'cancelled':
+    case 'skipped':
+      return 'skipped';
+    default:
+      return 'pending';
+  }
+}
+
+/**
+ * Map RunState (workflow-constants) to JobStepsResponse status
+ */
+function mapRunStatus(status: RunState): JobStepsResponse['status'] {
+  switch (status) {
+    case 'queued':
+      return 'pending';
+    case 'running':
+      return 'running';
+    case 'success':
+      return 'completed';
+    case 'failed':
+    case 'dlq': // Dead Letter Queue - treat as failed
+      return 'failed';
+    case 'cancelled':
+      return 'cancelled';
+    default:
+      return 'pending';
+  }
 }
