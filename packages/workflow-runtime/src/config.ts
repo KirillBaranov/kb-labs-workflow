@@ -1,7 +1,6 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { z } from 'zod'
-import type { WorkflowRegistryConfig } from './registry/types'
 
 export const RemoteMarketplaceSourceSchema = z.object({
   name: z.string().min(1),
