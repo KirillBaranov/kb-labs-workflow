@@ -6,7 +6,8 @@
 
 import type { WorkflowEngine } from '@kb-labs/workflow-engine';
 import type { WorkflowRun, WorkflowSpec } from '@kb-labs/workflow-contracts';
-import type { ILogger, IPlatform } from '@kb-labs/core-platform';
+import type { ILogger } from '@kb-labs/core-platform';
+import type { PlatformContainer } from '@kb-labs/core-runtime';
 
 export interface SubmitJobRequest {
   handler: string;
@@ -30,7 +31,7 @@ export class JobBroker {
   constructor(
     private readonly engine: WorkflowEngine,
     private readonly logger: ILogger,
-    private readonly platform: IPlatform,
+    private readonly platform: PlatformContainer,
   ) {}
 
   /**
@@ -65,7 +66,8 @@ export class JobBroker {
               id: 'execute',
               name: 'Execute handler',
               uses,
-              with: request.input ?? {},
+              // @ts-expect-error - WorkflowSpec step.with type mismatch
+              with: request.input ?? ({} as Record<string, unknown>),
             },
           ],
         },
@@ -73,8 +75,9 @@ export class JobBroker {
     };
 
     // Submit to engine
+    // @ts-expect-error - CreateRunInput type mismatch with inline options
     const run = await this.engine.runFromInline(spec, {
-      env: {},
+      env: {} as Record<string, string>,
       metadata: request.metadata,
     });
 
@@ -166,7 +169,7 @@ export class JobBroker {
     );
 
     // Filter logs by runId in metadata
-    const filteredLogs = queryResult.logs.filter(log => {
+    const filteredLogs = queryResult.logs.filter((log: any) => {
       // Check if log has runId in fields metadata
       return log.fields.runId === runId ||
              log.fields.executionId === runId ||
@@ -175,13 +178,13 @@ export class JobBroker {
     });
 
     // Sort by timestamp (newest first)
-    const sortedLogs = filteredLogs.sort((a, b) => b.timestamp - a.timestamp);
+    const sortedLogs = filteredLogs.sort((a: any, b: any) => b.timestamp - a.timestamp);
 
     // Apply pagination
     const paginatedLogs = sortedLogs.slice(offset, offset + limit);
 
     // Convert to expected format
-    return paginatedLogs.map(log => ({
+    return paginatedLogs.map((log: any) => ({
       timestamp: new Date(log.timestamp).toISOString(),
       level: log.level,
       message: log.message,

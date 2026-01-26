@@ -37,9 +37,12 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
     try {
       const { source, status, tags } = request.query;
 
+      // Map REST API status ('active'|'inactive') to internal status
+      const internalStatus: 'active' | 'paused' | 'disabled' | undefined = status === 'inactive' ? 'disabled' : status;
+
       const workflows = await workflowService.listAll({
         source,
-        status,
+        status: internalStatus,
         tags: tags ? tags.split(',') : undefined,
       });
 
@@ -49,7 +52,8 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
         description: w.description,
         source: w.source,
         pluginId: w.pluginId,
-        status: w.status,
+        // Map internal status to REST API status
+        status: w.status === 'active' ? 'active' : 'inactive',
         tags: w.tags,
       }));
 
@@ -91,7 +95,8 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
         description: workflow.description,
         source: workflow.source,
         pluginId: workflow.pluginId,
-        status: workflow.status,
+        // Map internal status to REST API status
+        status: workflow.status === 'active' ? 'active' : 'inactive',
         tags: workflow.tags,
       };
 
@@ -129,11 +134,14 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
       // WorkflowRuntime.input contains the full WorkflowSpec
       const spec = workflow.input as any;
 
+      // Map trigger type to RunTriggerSchema values
+      const triggerType = trigger?.type === 'cron' ? 'schedule' : trigger?.type === 'api' ? 'webhook' : 'manual';
+
       // Execute workflow using runFromSpec (correct WorkflowEngine API)
       const run = await engine.runFromSpec(spec, {
         trigger: {
-          type: trigger?.type || 'api',
-          user: trigger?.user,
+          type: triggerType,
+          actor: trigger?.user,
         },
         env: input && typeof input === 'object' ? (input as Record<string, string>) : undefined,
       });
