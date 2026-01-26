@@ -50,7 +50,7 @@ export function registerCronAPI(options: CronAPIOptions): void {
         // Register cron job with CronScheduler
         cronScheduler.register({
           id,
-          source: 'api', // Mark as API-registered
+          source: 'user', // API-registered jobs treated as user jobs
           schedule,
           timezone: timezone ?? 'UTC',
           priority: 'normal',
@@ -127,8 +127,8 @@ export function registerCronAPI(options: CronAPIOptions): void {
         return {
           id: job.id,
           schedule: job.schedule,
-          jobType: job.handler,
-          timezone: job.timezone,
+          jobType: job.handler ?? 'unknown', // Handler might be undefined for user workflows
+          timezone: job.timezone ?? 'UTC',
           enabled: job.enabled,
           // TODO: Track lastRun from execution history
           lastRun: undefined,
