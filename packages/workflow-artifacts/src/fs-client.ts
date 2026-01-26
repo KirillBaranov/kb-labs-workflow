@@ -51,24 +51,27 @@ async function createParentDir(path: string): Promise<void> {
 async function walk(root: string, prefix?: string): Promise<ArtifactReference[]> {
   const base = prefix ? ensureWithinRoot(root, prefix) : root
   const entries = await readdir(base, { withFileTypes: true })
-  const results: ArtifactReference[] = []
 
-  for (const entry of entries) {
+  // Process all entries in parallel
+  const entryPromises = entries.map(async (entry) => {
     const absolute = join(base, entry.name)
     const rel = relative(root, absolute)
+
     if (entry.isDirectory()) {
-      results.push(...(await walk(root, rel)))
+      return walk(root, rel)
     } else if (entry.isFile()) {
       const s = await stat(absolute)
-      results.push({
+      return [{
         path: rel,
         size: s.size,
         modifiedAt: s.mtime,
-      })
+      }]
     }
-  }
+    return []
+  })
 
-  return results
+  const nestedResults = await Promise.all(entryPromises)
+  return nestedResults.flat()
 }
 
 export interface FileSystemArtifactClientOptions {
@@ -90,7 +93,7 @@ export class FileSystemArtifactClient implements ArtifactClient {
 
   async consume(path: string): Promise<ArtifactOutput> {
     const target = ensureWithinRoot(this.options.root, path)
-    return await readFile(target)
+    return readFile(target)
   }
 
   async stream(path: string): Promise<NodeJS.ReadableStream> {
