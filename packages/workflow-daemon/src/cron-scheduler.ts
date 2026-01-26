@@ -3,7 +3,7 @@
  * CronScheduler - manages periodic job execution using node-cron
  */
 
-import cron from 'node-cron';
+import * as cron from 'node-cron';
 import { CronExpressionParser } from 'cron-parser';
 import type { ILogger, IAnalytics } from '@kb-labs/core-platform';
 import type { JobBroker } from './job-broker.js';

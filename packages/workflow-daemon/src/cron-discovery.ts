@@ -71,10 +71,10 @@ export class CronDiscovery {
       const results = await Promise.allSettled(
         plugins.map(async (plugin) => {
           // Get plugin manifest
-          const manifest = await this.cliApi.getPluginManifest(plugin.id);
+          const manifest = await this.cliApi.getManifestV2(plugin.id);
 
           // Check if manifest has cron section
-          const cronSection = (manifest as any).cron;
+          const cronSection = (manifest as any)?.cron;
           if (!cronSection || !Array.isArray(cronSection)) {
             return 0;
           }
@@ -183,12 +183,8 @@ export class CronDiscovery {
           });
         }
       }
-    } catch (error) {
-      this.logger.warn(
-        'Failed to discover user cron jobs',
-        error instanceof Error ? error : undefined,
-        { jobsDir }
-      );
+    } catch (_error) {
+      this.logger.warn('Failed to discover user cron jobs');
     }
 
     return count;
