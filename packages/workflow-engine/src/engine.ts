@@ -1,12 +1,14 @@
 import type {
   WorkflowRun,
   WorkflowSpec,
+  JobRun,
 } from '@kb-labs/workflow-contracts'
 import {
   EVENT_NAMES,
   type WorkflowEventName,
 } from '@kb-labs/workflow-constants'
-import type { ICache } from '@kb-labs/core-platform'
+import type { ICache, IEventBus, ILogger, IAnalytics } from '@kb-labs/core-platform'
+import type { ExecutionBackend } from '@kb-labs/plugin-execution'
 import { StateStore } from './state-store'
 import { ConcurrencyManager, type AcquireOptions } from './concurrency-manager'
 import {
@@ -29,15 +31,15 @@ export interface WorkflowEngineOptions {
   runCoordinator?: RunCoordinatorOptions
   maxWorkflowDepth?: number
   /** Platform cache adapter (REQUIRED) */
-  cache?: ICache
+  cache: ICache
   /** Platform event bus adapter (REQUIRED) */
-  events?: import('@kb-labs/core-platform').IEventBus
+  events: IEventBus
   /** Platform logger (REQUIRED) */
-  logger?: import('@kb-labs/core-platform').ILogger
+  logger: ILogger
   /** Platform analytics adapter (OPTIONAL) */
-  analytics?: import('@kb-labs/core-platform').IAnalytics
+  analytics?: IAnalytics
   /** Platform execution backend (OPTIONAL - for plugin step execution) */
-  executionBackend?: import('@kb-labs/plugin-execution').ExecutionBackend
+  executionBackend?: ExecutionBackend
   /** Workspace root (monorepo root) - used for plugin execution context */
   workspaceRoot?: string
 }
@@ -47,7 +49,7 @@ export class WorkflowEngine {
   readonly maxWorkflowDepth: number
 
   private readonly logger: EngineLogger
-  private readonly analytics?: import('@kb-labs/core-platform').IAnalytics
+  private readonly analytics?: IAnalytics
   private readonly stateStore: StateStore
   private readonly concurrency: ConcurrencyManager
   private readonly runCoordinator: RunCoordinator
@@ -55,18 +57,7 @@ export class WorkflowEngine {
   private readonly events: EventBusBridge
   private readonly snapshotStorage: RunSnapshotStorage
 
-  constructor(private readonly options: WorkflowEngineOptions = {}) {
-    // Validate required platform adapters
-    if (!options.cache) {
-      throw new Error('WorkflowEngine: cache adapter is required')
-    }
-    if (!options.events) {
-      throw new Error('WorkflowEngine: events adapter is required')
-    }
-    if (!options.logger) {
-      throw new Error('WorkflowEngine: logger adapter is required')
-    }
-
+  constructor(private readonly options: WorkflowEngineOptions) {
     this.logger = options.logger
     this.analytics = options.analytics
 
@@ -318,6 +309,62 @@ export class WorkflowEngine {
       durationMs: duration,
       stepCount: job?.steps.length ?? 0,
     }).catch(() => {})
+
+    // Check if all jobs in run are completed - update run status
+    await this.checkRunCompletion(runId)
+  }
+
+  /**
+   * Check if all jobs in a run are completed and update run status accordingly.
+   */
+  private async checkRunCompletion(runId: string): Promise<void> {
+    const run = await this.getRun(runId)
+    if (!run) {
+      return
+    }
+
+    // Check status of all jobs
+    const allSuccess = run.jobs.every((j) => j.status === 'success')
+    const anyFailed = run.jobs.some((j) => j.status === 'failed')
+    const anyRunning = run.jobs.some((j) => j.status === 'running' || j.status === 'queued')
+
+    // If any job is still running/queued, run is not complete
+    if (anyRunning) {
+      return
+    }
+
+    // Update run status based on job outcomes
+    if (allSuccess) {
+      await this.stateStore.updateRun(runId, (draft) => {
+        draft.status = 'success'
+        draft.finishedAt = new Date().toISOString()
+        return draft
+      })
+      this.logger.info('Workflow run completed successfully', { runId })
+
+      // Track workflow completion
+      this.analytics?.track('workflow.run.completed', {
+        runId,
+        name: run.name,
+        jobCount: run.jobs.length,
+        status: 'success',
+      }).catch(() => {})
+    } else if (anyFailed) {
+      await this.stateStore.updateRun(runId, (draft) => {
+        draft.status = 'failed'
+        draft.finishedAt = new Date().toISOString()
+        return draft
+      })
+      this.logger.info('Workflow run failed', { runId })
+
+      // Track workflow failure
+      this.analytics?.track('workflow.run.completed', {
+        runId,
+        name: run.name,
+        jobCount: run.jobs.length,
+        status: 'failed',
+      }).catch(() => {})
+    }
   }
 
   /**
@@ -380,28 +427,36 @@ export class WorkflowEngine {
   async resumeInterruptedJobs(): Promise<void> {
     const runIds = await this.stateStore.getAllRunIds()
 
-    let resumedCount = 0
-    for (const runId of runIds) {
-      const run = await this.stateStore.getRun(runId)
-      if (!run) {continue}
+    // Process all runs in parallel
+    const results = await Promise.all(
+      runIds.map(async runId => {
+        const run = await this.stateStore.getRun(runId)
+        if (!run) {return 0}
 
-      for (const job of run.jobs) {
-        if (job.status === 'interrupted') {
-          this.logger.info('Resuming interrupted job', { runId, jobId: job.id })
+        const interruptedJobs = run.jobs.filter(job => job.status === 'interrupted')
 
-          await this.stateStore.updateJob(runId, job.id, (draft) => {
-            draft.status = 'queued'
-            draft.startedAt = undefined
-            draft.finishedAt = undefined
-          })
+        // Process all interrupted jobs in this run in parallel
+        await Promise.all(
+          interruptedJobs.map(async job => {
+            this.logger.info('Resuming interrupted job', { runId, jobId: job.id })
 
-          // Re-enqueue in scheduler
-          const queuedJob = { ...job, status: 'queued' as const }
-          await this.scheduler.enqueueJob(runId, queuedJob, queuedJob.priority ?? 'normal')
-          resumedCount++
-        }
-      }
-    }
+            await this.stateStore.updateJob(runId, job.id, (draft) => {
+              draft.status = 'queued'
+              draft.startedAt = undefined
+              draft.finishedAt = undefined
+            })
+
+            // Re-enqueue in scheduler
+            const queuedJob = { ...job, status: 'queued' as const }
+            await this.scheduler.enqueueJob(runId, queuedJob, queuedJob.priority ?? 'normal')
+          }),
+        )
+
+        return interruptedJobs.length
+      }),
+    )
+
+    const resumedCount = results.reduce((sum, count) => sum + count, 0)
 
     if (resumedCount > 0) {
       this.logger.info('Resumed interrupted jobs', { count: resumedCount })
@@ -411,7 +466,7 @@ export class WorkflowEngine {
   /**
    * Determine if job should be retried based on retry policy.
    */
-  private shouldRetryJob(job: import('@kb-labs/workflow-contracts').JobRun): boolean {
+  private shouldRetryJob(job: JobRun): boolean {
     const retryPolicy = job.retries || { max: 3, backoff: 'exp' as const }
     const attempt = job.attempt || 0
 
@@ -687,20 +742,16 @@ export class WorkflowEngine {
    * Returns array of WorkflowRun objects with status 'running' or 'queued'.
    */
   async getActiveExecutions(): Promise<WorkflowRun[]> {
-    const active: WorkflowRun[] = []
-
     // Get all run IDs from sorted set index
     const runIds = await this.stateStore.getAllRunIds()
 
-    // Filter for active runs
-    for (const runId of runIds) {
-      const run = await this.stateStore.getRun(runId)
-      if (run && (run.status === 'running' || run.status === 'queued')) {
-        active.push(run)
-      }
-    }
+    // Fetch all runs in parallel and filter for active ones
+    const runs = await Promise.all(runIds.map(id => this.stateStore.getRun(id)))
 
-    return active
+    return runs.filter(
+      (run): run is WorkflowRun =>
+        run !== null && (run.status === 'running' || run.status === 'queued'),
+    )
   }
 
   /**
@@ -708,20 +759,13 @@ export class WorkflowEngine {
    * Returns array of all WorkflowRun objects ordered by creation time.
    */
   async getAllRuns(): Promise<WorkflowRun[]> {
-    const runs: WorkflowRun[] = []
-
     // Get all run IDs from sorted set index
     const runIds = await this.stateStore.getAllRunIds()
 
-    // Fetch all runs
-    for (const runId of runIds) {
-      const run = await this.stateStore.getRun(runId)
-      if (run) {
-        runs.push(run)
-      }
-    }
+    // Fetch all runs in parallel and filter out nulls
+    const runs = await Promise.all(runIds.map(id => this.stateStore.getRun(id)))
 
-    return runs
+    return runs.filter((run): run is WorkflowRun => run !== null)
   }
 
   /**
@@ -730,16 +774,11 @@ export class WorkflowEngine {
    */
   async listRuns(): Promise<WorkflowRun[]> {
     const runIds = await this.stateStore.getAllRunIds()
-    const runs: WorkflowRun[] = []
 
-    for (const runId of runIds) {
-      const run = await this.stateStore.getRun(runId)
-      if (run) {
-        runs.push(run)
-      }
-    }
+    // Fetch all runs in parallel and filter out nulls
+    const runs = await Promise.all(runIds.map(id => this.stateStore.getRun(id)))
 
-    return runs
+    return runs.filter((run): run is WorkflowRun => run !== null)
   }
 
   /**
@@ -786,9 +825,11 @@ export class WorkflowEngine {
       },
     }
 
+    // Fetch all runs in parallel
+    const runs = await Promise.all(runIds.map(id => this.stateStore.getRun(id)))
+
     // Aggregate metrics from all runs
-    for (const runId of runIds) {
-      const run = await this.stateStore.getRun(runId)
+    for (const run of runs) {
       if (!run) {continue}
 
       metrics.runs.total++

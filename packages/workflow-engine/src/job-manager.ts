@@ -14,9 +14,8 @@ import type {
   ILogger,
   IEventBus,
 } from '@kb-labs/core-platform';
-import type { ExecutionRequest, ExecutionResponse } from '@kb-labs/core-contracts';
 import type { JobHandlerDecl, PluginContextDescriptor } from '@kb-labs/plugin-contracts';
-import type { IExecutionBackend } from '@kb-labs/core-platform';
+import type { IExecutionBackend, ExecutionRequest } from '@kb-labs/core-platform';
 import { nanoid } from 'nanoid';
 
 /**
@@ -291,18 +290,20 @@ export class JobManager implements IJobScheduler {
     const pattern = 'kb:job:*';
     const keys = await this.getAllJobKeys(pattern);
 
-    const records: JobRecord[] = [];
-    for (const key of keys) {
-      const data = await this.cache.get<JobRecord>(key);
-      if (!data) {continue;}
+    // Fetch all job records in parallel
+    const allRecords = await Promise.all(keys.map(key => this.cache.get<JobRecord>(key)));
+
+    // Filter out nulls and apply filters
+    const records = allRecords.filter((data): data is JobRecord => {
+      if (!data) {return false;}
 
       // Apply filters
-      if (filter.type && data.type !== filter.type) {continue;}
-      if (filter.tenantId && data.tenantId !== filter.tenantId) {continue;}
-      if (filter.status && data.status !== filter.status) {continue;}
+      if (filter.type && data.type !== filter.type) {return false;}
+      if (filter.tenantId && data.tenantId !== filter.tenantId) {return false;}
+      if (filter.status && data.status !== filter.status) {return false;}
 
-      records.push(data);
-    }
+      return true;
+    });
 
     // Sort by creation time (newest first)
     records.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -377,10 +378,9 @@ export class JobManager implements IJobScheduler {
 
       const request: ExecutionRequest = {
         executionId,
-        pluginId: handlerEntry.pluginId,
-        pluginVersion: handlerEntry.pluginVersion,
-        handlerPath: handlerEntry.handlerPath,
-        exportName: 'handle', // Job handlers export "handle" function
+        descriptor,
+        pluginRoot: handlerEntry.pluginRoot,
+        handlerRef: handlerEntry.handlerPath,
         input: {
           jobId,
           type: record.type,
@@ -389,13 +389,6 @@ export class JobManager implements IJobScheduler {
           attempt: record.attempt,
         },
         timeoutMs: record.timeout,
-        context: {
-          tenantId: record.tenantId,
-          traceId: executionId,
-        },
-        workspace: this.workspaceRoot, // Use monorepo root, not daemon's process.cwd()
-        pluginRoot: handlerEntry.pluginRoot,
-        descriptor,
       };
 
       this.logger.debug('Executing job handler', {
@@ -405,7 +398,7 @@ export class JobManager implements IJobScheduler {
       });
 
       // Execute in subprocess
-      const result: ExecutionResponse = await this.config.executionBackend.execute(request, {
+      const result = await this.config.executionBackend.execute(request, {
         signal: undefined, // TODO: Support cancellation
       });
 
@@ -505,7 +498,7 @@ export class JobManager implements IJobScheduler {
     record.completedAt = new Date().toISOString();
     await this.saveJobRecord(record);
 
-    this.logger.error('Job failed', {
+    this.logger.error('Job failed', undefined, {
       jobId: record.id,
       type: record.type,
       error: errorMsg,
@@ -540,7 +533,7 @@ export class JobManager implements IJobScheduler {
 
   private async getJobRecord(jobId: string): Promise<JobRecord | null> {
     const key = `kb:job:${jobId}`;
-    return await this.cache.get<JobRecord>(key);
+    return this.cache.get<JobRecord>(key);
   }
 
   private async enqueueJob(jobId: string, priority: number, availableAt: number): Promise<void> {
@@ -555,11 +548,12 @@ export class JobManager implements IJobScheduler {
   private async removeFromQueue(jobId: string): Promise<void> {
     // Scan queue and remove matching entry
     const results = await this.cache.zrangebyscore('kb:jobqueue', 0, Date.now() + 1000000);
+    // Sequential search - must break on first match to avoid unnecessary zrem calls
     for (const raw of results) {
       try {
         const entry = JSON.parse(raw) as JobQueueEntry;
         if (entry.jobId === jobId) {
-          await this.cache.zrem('kb:jobqueue', raw);
+          await this.cache.zrem('kb:jobqueue', raw); // eslint-disable-line no-await-in-loop
           break;
         }
       } catch {
@@ -573,14 +567,10 @@ export class JobManager implements IJobScheduler {
     const pattern = 'kb:job:*';
     const keys = await this.getAllJobKeys(pattern);
 
-    for (const k of keys) {
-      const record = await this.cache.get<JobRecord>(k);
-      if (record?.idempotencyKey === key) {
-        return record;
-      }
-    }
+    // Fetch all records in parallel and find match
+    const records = await Promise.all(keys.map(k => this.cache.get<JobRecord>(k)));
 
-    return null;
+    return records.find(record => record?.idempotencyKey === key) ?? null;
   }
 
   private async getAllJobKeys(_pattern: string): Promise<string[]> {

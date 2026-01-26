@@ -22,7 +22,7 @@ import { join, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { WorkflowSpecSchema } from '@kb-labs/workflow-contracts';
-import type { WorkflowSpec, JobSpec } from '@kb-labs/workflow-contracts';
+import type { WorkflowSpec } from '@kb-labs/workflow-contracts';
 import type { PlatformServices } from '@kb-labs/plugin-contracts';
 import type {
   WorkflowRuntime,
@@ -128,20 +128,22 @@ export class WorkflowRepository {
    */
   async list(options?: WorkflowListOptions): Promise<WorkflowRuntime[]> {
     const allFiles = await this.listWorkflowFiles();
-    const workflows: WorkflowRuntime[] = [];
 
-    for (const filename of allFiles) {
-      const id = filename.replace(/\.(yaml|yml)$/, '');
-      const stored = await this.loadWorkflow(id);
-      if (!stored) {continue;}
+    // Load all workflows in parallel
+    const allWorkflows = await Promise.all(
+      allFiles.map(async filename => {
+        const id = filename.replace(/\.(yaml|yml)$/, '');
+        const stored = await this.loadWorkflow(id);
+        return stored ? this.toRuntime(stored) : null;
+      }),
+    );
 
-      // Apply filters
-      if (options?.status && stored.status !== options.status) {
-        continue;
-      }
-
-      workflows.push(this.toRuntime(stored));
-    }
+    // Filter out nulls and apply status filter
+    const workflows = allWorkflows.filter((workflow): workflow is WorkflowRuntime => {
+      if (!workflow) {return false;}
+      if (options?.status && workflow.status !== options.status) {return false;}
+      return true;
+    });
 
     // Apply pagination
     if (options?.offset !== undefined || options?.limit !== undefined) {

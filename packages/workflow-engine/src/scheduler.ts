@@ -35,18 +35,25 @@ export class Scheduler {
   }
 
   async scheduleRun(run: WorkflowRun): Promise<void> {
-    for (const job of run.jobs) {
+    // Enqueue ready jobs in parallel
+    const readyJobs = run.jobs.filter(job => {
       if (job.blocked) {
         this.logger.debug('Job blocked by dependencies; deferring enqueue', {
           runId: run.id,
           jobId: job.id,
           needs: job.needs,
         })
-        continue
+        return false
       }
-      const priority = job.priority ?? this.defaultPriority
-      await this.enqueueJob(run.id, job, priority)
-    }
+      return true
+    })
+
+    await Promise.all(
+      readyJobs.map(job => {
+        const priority = job.priority ?? this.defaultPriority
+        return this.enqueueJob(run.id, job, priority)
+      }),
+    )
   }
 
   async enqueueJob(
@@ -82,8 +89,9 @@ export class Scheduler {
   }
 
   async dequeueJob(): Promise<JobQueueEntry | null> {
+    // Sequential check by priority order - must return first match respecting priority
     for (const priority of this.priorityOrder) {
-      const entry = await this.dequeueFromPriority(priority)
+      const entry = await this.dequeueFromPriority(priority) // eslint-disable-line no-await-in-loop
       if (entry) {
         return entry
       }

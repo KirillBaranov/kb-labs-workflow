@@ -94,9 +94,8 @@ export class WorkflowScheduleManager {
       scheduled: scheduled.length,
     });
 
-    for (const workflow of scheduled) {
-      await this.register(workflow);
-    }
+    // Register all workflows in parallel
+    await Promise.all(scheduled.map(workflow => this.register(workflow)));
   }
 
   /**

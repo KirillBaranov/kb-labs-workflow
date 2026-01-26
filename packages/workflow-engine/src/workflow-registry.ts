@@ -46,6 +46,7 @@ export class WorkflowRegistry {
       cwd,
     })
 
+    // Sequential directory scanning - each directory is independent but readdir is async
     for (const dir of this.options.scanDirs) {
       const absoluteDir = resolve(cwd, dir)
 
@@ -55,7 +56,7 @@ export class WorkflowRegistry {
       }
 
       try {
-        const files = await readdir(absoluteDir)
+        const files = await readdir(absoluteDir) // eslint-disable-line no-await-in-loop
         const yamlFiles = files.filter(f => f.endsWith('.yml') || f.endsWith('.yaml'))
 
         this.options.logger.debug(`Found workflow files`, {
@@ -63,10 +64,13 @@ export class WorkflowRegistry {
           count: yamlFiles.length,
         })
 
-        for (const file of yamlFiles) {
-          const filePath = join(absoluteDir, file)
-          await this.indexFile(filePath)
-        }
+        // Index all files in parallel
+        await Promise.all( // eslint-disable-line no-await-in-loop
+          yamlFiles.map(file => {
+            const filePath = join(absoluteDir, file)
+            return this.indexFile(filePath)
+          }),
+        )
       } catch (error) {
         this.options.logger.warn(`Failed to scan directory`, {
           dir: absoluteDir,
@@ -138,6 +142,7 @@ export class WorkflowRegistry {
 
     // Use WorkflowLoader's parse logic but return raw parsed object
     // We need the extra fields (id, schedule, etc) that aren't in WorkflowSpec
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { parse } = require('yaml')
     return parse(trimmed)
   }

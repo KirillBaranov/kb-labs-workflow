@@ -62,7 +62,7 @@ export class ConcurrencyManager {
 
   async getActiveRun(group: ConcurrencyGroup): Promise<string | null> {
     const key = `kb:concurrency:${group}`
-    return await this.cache.get<string>(key)
+    return this.cache.get<string>(key)
   }
 }
 

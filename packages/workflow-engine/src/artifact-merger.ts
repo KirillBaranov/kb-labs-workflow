@@ -1,10 +1,9 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
-import type { ArtifactMergeConfig, ArtifactMergeStrategy, WorkflowRun } from '@kb-labs/workflow-contracts'
+import type { ArtifactMergeConfig, ArtifactMergeStrategy } from '@kb-labs/workflow-contracts'
 import type { ArtifactClient } from '@kb-labs/workflow-artifacts'
 import type { StateStore } from './state-store'
 import type { EngineLogger } from './types'
-import { createFileSystemArtifactClient } from '@kb-labs/workflow-artifacts'
 
 export interface ArtifactMergerOptions {
   stateStore: StateStore
@@ -28,23 +27,28 @@ export class ArtifactMerger {
       currentRunId,
     })
 
-    // Load artifacts from all sources
-    const sourceArtifacts: Array<{ path: string; content: unknown }> = []
+    // Load artifacts from all sources (parallel execution)
+    const results = await Promise.allSettled(
+      from.map(source =>
+        this.loadArtifactsFromRun(source.runId, source.jobId).then(
+          artifacts => ({ source, artifacts, success: true as const }),
+          error => ({ source, error, success: false as const }),
+        ),
+      ),
+    )
 
-    for (const source of from) {
-      try {
-        const artifacts = await this.loadArtifactsFromRun(
-          source.runId,
-          source.jobId,
-        )
-        sourceArtifacts.push(...artifacts)
-      } catch (error) {
+    const sourceArtifacts: Array<{ path: string; content: unknown }> = []
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value.success) {
+        sourceArtifacts.push(...result.value.artifacts)
+      } else if (result.status === 'fulfilled' && !result.value.success) {
         this.options.logger.warn('Failed to load artifacts from source', {
-          runId: source.runId,
-          jobId: source.jobId,
-          error: error instanceof Error ? error.message : String(error),
+          runId: result.value.source.runId,
+          jobId: result.value.source.jobId,
+          error: result.value.error instanceof Error
+            ? result.value.error.message
+            : String(result.value.error),
         })
-        // Continue with other sources
       }
     }
 
@@ -89,25 +93,35 @@ export class ArtifactMerger {
       return []
     }
 
-    // Load artifacts from filesystem
-    const artifacts: Array<{ path: string; content: unknown }> = []
+    // Load artifacts from filesystem (parallel execution)
     const jobRoot = join(
       this.options.artifactsRoot,
       runId,
       job.jobName,
     )
 
-    for (const artifactPath of artifactPaths) {
-      try {
+    const results = await Promise.allSettled(
+      artifactPaths.map(artifactPath => {
         const fullPath = join(jobRoot, artifactPath)
-        const content = await this.loadArtifactContent(fullPath)
-        artifacts.push({ path: artifactPath, content })
-      } catch (error) {
+        return this.loadArtifactContent(fullPath).then(
+          content => ({ artifactPath, content, success: true as const }),
+          error => ({ artifactPath, error, success: false as const }),
+        )
+      }),
+    )
+
+    const artifacts: Array<{ path: string; content: unknown }> = []
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value.success) {
+        artifacts.push({ path: result.value.artifactPath, content: result.value.content })
+      } else if (result.status === 'fulfilled' && !result.value.success) {
         this.options.logger.warn('Failed to load artifact', {
           runId,
           jobId: job.id,
-          artifactPath,
-          error: error instanceof Error ? error.message : String(error),
+          artifactPath: result.value.artifactPath,
+          error: result.value.error instanceof Error
+            ? result.value.error.message
+            : String(result.value.error),
         })
       }
     }
@@ -148,38 +162,40 @@ export class ArtifactMerger {
       artifactsByPath.get(artifact.path)!.push(artifact.content)
     }
 
-    // Apply strategy for each path
-    for (const [path, contents] of artifactsByPath.entries()) {
-      let merged: unknown
+    // Apply strategy and save for each path in parallel
+    await Promise.all(
+      Array.from(artifactsByPath.entries()).map(async ([path, contents]) => {
+        let merged: unknown
 
-      switch (strategy) {
-        case 'append': {
-          // Append: combine arrays or concatenate strings
-          merged = this.mergeAppend(contents)
-          break
+        switch (strategy) {
+          case 'append': {
+            // Append: combine arrays or concatenate strings
+            merged = this.mergeAppend(contents)
+            break
+          }
+          case 'overwrite': {
+            // Overwrite: use last value
+            merged = contents[contents.length - 1]
+            break
+          }
+          case 'json-merge': {
+            // JSON merge: deep merge objects
+            merged = this.mergeJson(contents)
+            break
+          }
+          default: {
+            this.options.logger.warn('Unknown merge strategy, using overwrite', {
+              strategy,
+              path,
+            })
+            merged = contents[contents.length - 1]
+          }
         }
-        case 'overwrite': {
-          // Overwrite: use last value
-          merged = contents[contents.length - 1]
-          break
-        }
-        case 'json-merge': {
-          // JSON merge: deep merge objects
-          merged = this.mergeJson(contents)
-          break
-        }
-        default: {
-          this.options.logger.warn('Unknown merge strategy, using overwrite', {
-            strategy,
-            path,
-          })
-          merged = contents[contents.length - 1]
-        }
-      }
 
-      // Save merged artifact
-      await this.saveMergedArtifact(targetArtifacts, path, merged)
-    }
+        // Save merged artifact
+        await this.saveMergedArtifact(targetArtifacts, path, merged)
+      }),
+    )
   }
 
   private mergeAppend(contents: unknown[]): unknown {
