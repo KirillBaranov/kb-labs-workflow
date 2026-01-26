@@ -23,6 +23,21 @@ export interface JobsAPIOptions {
   logger: ILogger;
 }
 
+// Helper: Map WorkflowRun status to JobStatusInfo status
+function mapRunStatusToJobStatus(
+  status: 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | 'skipped' | 'dlq'
+): 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' {
+  switch (status) {
+    case 'queued': return 'pending';
+    case 'running': return 'running';
+    case 'success': return 'completed';
+    case 'failed': return 'failed';
+    case 'cancelled': return 'cancelled';
+    case 'skipped': return 'cancelled'; // Treat skipped as cancelled
+    case 'dlq': return 'failed'; // Treat DLQ as failed
+  }
+}
+
 /**
  * Register Jobs API routes
  */
@@ -80,9 +95,8 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
       } catch (error) {
         // Log sanitized error details server-side (no sensitive data in logs)
         const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error('Job submission failed', {
-          error: sanitizeErrorMessage(errorMessage),
-          stack: error instanceof Error ? error.stack : undefined,
+        logger.error('Job submission failed', error instanceof Error ? error : undefined, {
+          message: sanitizeErrorMessage(errorMessage),
           type,
           tenantId,
         });
@@ -124,7 +138,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
         const jobInfo: JobStatusInfo = {
           id: run.id,
           type: run.name, // WorkflowRun.name maps to job type
-          status: run.status,
+          status: mapRunStatusToJobStatus(run.status),
           tenantId: run.tenantId ?? tenantId,
           createdAt: run.createdAt,
           startedAt: run.startedAt,
@@ -180,17 +194,13 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
 
       try {
-        const cancelled = await engine.cancelRun(jobId);
+        await engine.cancelRun(jobId);
+
+        logger.info('Job cancelled', { jobId, tenantId });
 
         const response: JobCancelResponse = {
-          cancelled,
+          cancelled: true,
         };
-
-        if (cancelled) {
-          logger.info('Job cancelled', { jobId, tenantId });
-        } else {
-          logger.warn('Job cancellation failed (already finished?)', { jobId, tenantId });
-        }
 
         return response;
       } catch (error) {
@@ -220,13 +230,13 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
         let jobs: JobStatusInfo[] = allRuns.map(run => ({
           id: run.id,
           type: run.name,
-          status: run.status,
+          status: mapRunStatusToJobStatus(run.status),
           tenantId: run.tenantId ?? tenantId,
           createdAt: run.createdAt,
           startedAt: run.startedAt,
           finishedAt: run.finishedAt,
           result: run.result,
-          error: run.error,
+          error: run.result?.error?.message,
         }));
 
         // Apply filters
