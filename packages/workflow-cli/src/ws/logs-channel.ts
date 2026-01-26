@@ -17,7 +17,8 @@ const LogMsg = defineMessage<{
   context?: Record<string, unknown>;
 }>('log');
 
-const CompleteMsg = defineMessage<{ jobId: string; status: string }>('complete');
+// Type-only message definitions (used only in type unions)
+type CompleteMsg = ReturnType<typeof defineMessage<{ jobId: string; status: string }>>;
 const ErrorMsg = defineMessage<{ error: string }>('error');
 
 // Incoming/Outgoing types (discriminated unions)
@@ -25,7 +26,7 @@ type Incoming = ReturnType<typeof SubscribeMsg.create> | ReturnType<typeof Unsub
 
 type Outgoing =
   | ReturnType<typeof LogMsg.create>
-  | ReturnType<typeof CompleteMsg.create>
+  | CompleteMsg
   | ReturnType<typeof ErrorMsg.create>;
 
 export default defineWebSocket<unknown, Incoming, Outgoing>({

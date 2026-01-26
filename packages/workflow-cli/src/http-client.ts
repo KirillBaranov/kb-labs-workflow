@@ -23,6 +23,29 @@ export class WorkflowDaemonClient {
   }
 
   /**
+   * Validate response Content-Type and parse JSON safely
+   */
+  private async parseJsonResponse<T>(response: Response): Promise<T> {
+    const contentType = response.headers.get('content-type');
+    if (!contentType?.includes('application/json')) {
+      throw new Error(`Invalid Content-Type: expected application/json, got ${contentType}`);
+    }
+    return response.json() as Promise<T>;
+  }
+
+  /**
+   * Validate and encode job ID to prevent path traversal attacks
+   */
+  private validateAndEncodeJobId(jobId: string): string {
+    // Validate job ID format (alphanumeric, hyphens, underscores only)
+    if (!/^[a-zA-Z0-9_-]+$/.test(jobId)) {
+      throw new Error(`Invalid job ID format: ${jobId}`);
+    }
+    // Encode for URL safety (defense in depth)
+    return encodeURIComponent(jobId);
+  }
+
+  /**
    * Health check
    */
   async health(): Promise<{ ok: boolean; service: string }> {
@@ -30,7 +53,7 @@ export class WorkflowDaemonClient {
     if (!response.ok) {
       throw new Error(`Health check failed: ${response.statusText}`);
     }
-    return response.json();
+    return this.parseJsonResponse(response);
   }
 
   /**
@@ -41,22 +64,38 @@ export class WorkflowDaemonClient {
     if (!response.ok) {
       throw new Error(`Failed to get metrics: ${response.statusText}`);
     }
-    const data = await response.json();
+    const data = await this.parseJsonResponse<any>(response);
     return data.data;
   }
 
   /**
-   * Get job status
+   * Get job status with full details (jobs, steps, outputs)
    */
   async getJobStatus(jobId: string): Promise<any> {
-    const response = await fetch(`${this.baseUrl}/jobs/${jobId}/status`);
+    const encodedJobId = this.validateAndEncodeJobId(jobId);
+    const response = await fetch(`${this.baseUrl}/api/v1/jobs/${encodedJobId}`);
     if (response.status === 404) {
       throw new Error(`Job ${jobId} not found`);
     }
     if (!response.ok) {
       throw new Error(`Failed to get job status: ${response.statusText}`);
     }
-    const data = await response.json();
+    return this.parseJsonResponse(response);
+  }
+
+  /**
+   * Get job steps with outputs
+   */
+  async getJobSteps(jobId: string): Promise<any> {
+    const encodedJobId = this.validateAndEncodeJobId(jobId);
+    const response = await fetch(`${this.baseUrl}/api/v1/jobs/${encodedJobId}/steps`);
+    if (response.status === 404) {
+      throw new Error(`Job ${jobId} not found`);
+    }
+    if (!response.ok) {
+      throw new Error(`Failed to get job steps: ${response.statusText}`);
+    }
+    const data = await this.parseJsonResponse<any>(response);
     return data.data;
   }
 
@@ -64,14 +103,15 @@ export class WorkflowDaemonClient {
    * Get job logs
    */
   async getJobLogs(jobId: string): Promise<any[]> {
-    const response = await fetch(`${this.baseUrl}/jobs/${jobId}/logs`);
+    const encodedJobId = this.validateAndEncodeJobId(jobId);
+    const response = await fetch(`${this.baseUrl}/api/v1/jobs/${encodedJobId}/logs`);
     if (response.status === 404) {
       throw new Error(`Job ${jobId} not found`);
     }
     if (!response.ok) {
       throw new Error(`Failed to get job logs: ${response.statusText}`);
     }
-    const data = await response.json();
+    const data = await this.parseJsonResponse<any>(response);
     return data.data.logs;
   }
 
@@ -79,11 +119,11 @@ export class WorkflowDaemonClient {
    * Get active executions
    */
   async getExecutions(): Promise<any[]> {
-    const response = await fetch(`${this.baseUrl}/executions`);
+    const response = await fetch(`${this.baseUrl}/api/v1/executions`);
     if (!response.ok) {
       throw new Error(`Failed to get executions: ${response.statusText}`);
     }
-    const data = await response.json();
+    const data = await this.parseJsonResponse<any>(response);
     return data.data.executions;
   }
 
@@ -95,11 +135,11 @@ export class WorkflowDaemonClient {
     total: number;
     running: boolean;
   }> {
-    const response = await fetch(`${this.baseUrl}/cron/jobs`);
+    const response = await fetch(`${this.baseUrl}/api/v1/cron/jobs`);
     if (!response.ok) {
       throw new Error(`Failed to get cron jobs: ${response.statusText}`);
     }
-    const data = await response.json();
+    const data = await this.parseJsonResponse<any>(response);
     return data.data;
   }
 
@@ -126,7 +166,7 @@ export class WorkflowDaemonClient {
       throw new Error(error.error || `Failed to submit job: ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = await this.parseJsonResponse<{ data: { id: string; status: string } }>(response);
     return data.data;
   }
 }

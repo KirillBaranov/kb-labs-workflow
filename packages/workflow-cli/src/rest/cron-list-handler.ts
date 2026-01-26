@@ -24,7 +24,7 @@ interface CronListResponse {
 export default defineHandler({
   async execute(
     ctx: PluginContextV3,
-    input: RestInput
+    _input: RestInput
   ): Promise<CronListResponse> {
     const daemonUrl = getWorkflowDaemonUrl();
     const url = `${daemonUrl}/api/v1/cron`;

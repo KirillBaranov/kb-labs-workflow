@@ -11,14 +11,17 @@ const SubscribeMsg = defineMessage<{ jobId: string }>('subscribe');
 const UnsubscribeMsg = defineMessage<{}>('unsubscribe');
 
 const StepStartMsg = defineMessage<{ stepName: string; stepIndex: number }>('step_start');
-const StepProgressMsg = defineMessage<{ stepName: string; progress: number; message?: string }>('step_progress');
-const StepCompleteMsg = defineMessage<{
+
+// Type-only message definitions (used only in type unions)
+type StepProgressMsg = ReturnType<typeof defineMessage<{ stepName: string; progress: number; message?: string }>>;
+type StepCompleteMsg = ReturnType<typeof defineMessage<{
   stepName: string;
   status: 'completed' | 'failed';
   durationMs: number;
   error?: string;
-}>('step_complete');
-const JobCompleteMsg = defineMessage<{ jobId: string; status: string; durationMs: number }>('job_complete');
+}>>;
+type JobCompleteMsg = ReturnType<typeof defineMessage<{ jobId: string; status: string; durationMs: number }>>;
+
 const ErrorMsg = defineMessage<{ error: string }>('error');
 
 // Incoming/Outgoing types
@@ -26,9 +29,9 @@ type Incoming = ReturnType<typeof SubscribeMsg.create> | ReturnType<typeof Unsub
 
 type Outgoing =
   | ReturnType<typeof StepStartMsg.create>
-  | ReturnType<typeof StepProgressMsg.create>
-  | ReturnType<typeof StepCompleteMsg.create>
-  | ReturnType<typeof JobCompleteMsg.create>
+  | StepProgressMsg
+  | StepCompleteMsg
+  | JobCompleteMsg
   | ReturnType<typeof ErrorMsg.create>;
 
 export default defineWebSocket<unknown, Incoming, Outgoing>({
