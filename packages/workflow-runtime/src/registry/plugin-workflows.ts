@@ -49,6 +49,8 @@ export async function extractWorkflows(snapshot: RegistrySnapshot): Promise<Reso
     let packageRoot = pluginRoot
     let currentDir = resolve(pluginRoot)
 
+    // IMPORTANT: Directory traversal must be sequential (walking up parent directories)
+    /* eslint-disable no-await-in-loop */
     while (currentDir !== dirname(currentDir)) {
       try {
         const pkgPath = join(currentDir, 'package.json')
@@ -59,6 +61,7 @@ export async function extractWorkflows(snapshot: RegistrySnapshot): Promise<Reso
         currentDir = dirname(currentDir)
       }
     }
+    /* eslint-enable no-await-in-loop */
 
     for (const wfHandler of workflowHandlers) {
       const id = `plugin:${entry.pluginId}/${wfHandler.id}`

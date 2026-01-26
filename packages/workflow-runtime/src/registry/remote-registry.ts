@@ -1,5 +1,5 @@
 import { mkdir, readFile, rm, access } from 'node:fs/promises'
-import { join, resolve, basename, extname, relative } from 'node:path'
+import { join, extname, relative } from 'node:path'
 import { execaCommand } from 'execa'
 import fg from 'fast-glob'
 import { parse as parseYaml } from 'yaml'
@@ -39,20 +39,24 @@ export class RemoteWorkflowRegistry implements WorkflowRegistry {
       return this.cache
     }
 
-    const workflows: ResolvedWorkflow[] = []
-
-    for (const remote of this.config.remotes) {
-      try {
+    // Load workflows from all remotes in parallel
+    const results = await Promise.allSettled(
+      this.config.remotes.map(async (remote) => {
         const remoteWorkflows = await this.loadWorkflowsFromRemote(remote)
-        workflows.push(...remoteWorkflows)
-      } catch (error) {
+        return { remote, workflows: remoteWorkflows }
+      })
+    )
+
+    const workflows: ResolvedWorkflow[] = []
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        workflows.push(...result.value.workflows)
+      } else {
         if (this.logger?.warn) {
           this.logger.warn('Failed to load workflows from remote', {
-            remote: remote.name,
-            error: error instanceof Error ? error.message : String(error),
+            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
           })
         }
-        // Continue with other remotes
       }
     }
 
@@ -69,11 +73,11 @@ export class RemoteWorkflowRegistry implements WorkflowRegistry {
   }
 
   async refresh(): Promise<void> {
-    // Clear cache and update all remotes
+    // Clear cache and update all remotes in parallel
     this.cache = null
-    for (const remote of this.config.remotes) {
-      await this.updateRemote(remote)
-    }
+    await Promise.all(
+      this.config.remotes.map((remote) => this.updateRemote(remote))
+    )
   }
 
   async dispose(): Promise<void> {
@@ -98,30 +102,36 @@ export class RemoteWorkflowRegistry implements WorkflowRegistry {
       ignore: ['node_modules/**', 'dist/**', '.git/**'],
     })
 
-    for (const file of files) {
-      try {
+    // Load all workflow files in parallel
+    const results = await Promise.allSettled(
+      files.map(async (file) => {
         const spec = await this.loadWorkflowSpec(file)
         if (!spec) {
-          continue
+          return null
         }
 
         const relativePath = relative(repoPath, file)
         const id = this.generateId(remote.name, relativePath)
 
-        workflows.push({
+        return {
           id,
-          source: 'plugin', // Use 'plugin' for now, could add 'remote' later
+          source: 'plugin' as const, // Use 'plugin' for now, could add 'remote' later
           filePath: file,
           description: spec.description,
           // Store remote info in tags for now (metadata is limited)
           tags: [`remote:${remote.name}`],
-        })
-      } catch (error) {
+        }
+      })
+    )
+
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value !== null) {
+        workflows.push(result.value)
+      } else if (result.status === 'rejected') {
         if (this.logger?.warn) {
           this.logger.warn('Failed to load workflow from remote file', {
             remote: remote.name,
-            file,
-            error: error instanceof Error ? error.message : String(error),
+            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
           })
         }
       }

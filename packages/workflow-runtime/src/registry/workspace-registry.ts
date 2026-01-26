@@ -1,11 +1,10 @@
 import { readFile } from 'node:fs/promises'
-import { join, relative, resolve } from 'node:path'
+import { relative } from 'node:path'
 import fg from 'fast-glob'
 import { parse as parseYaml } from 'yaml'
 import type { WorkflowSpec } from '@kb-labs/workflow-contracts'
 import { WorkflowSpecSchema } from '@kb-labs/workflow-contracts'
 import type { ResolvedWorkflow, WorkflowRegistry } from './types'
-import { loadWorkflowConfig } from '../config'
 
 export interface WorkspaceWorkflowRegistryConfig {
   workspaceRoot: string
@@ -35,28 +34,35 @@ export class WorkspaceWorkflowRegistry implements WorkflowRegistry {
       ignore: ['node_modules/**', 'dist/**', '.git/**'],
     })
 
-    for (const file of files) {
-      try {
+    // Load all workflow files in parallel
+    const results = await Promise.allSettled(
+      files.map(async (file) => {
         const spec = await this.loadWorkflowSpec(file)
         if (!spec) {
-          continue
+          return null
         }
 
         const relativePath = relative(this.config.workspaceRoot, file)
         const id = this.generateId(relativePath)
 
-        workflows.push({
+        return {
           id,
-          source: 'workspace',
+          source: 'workspace' as const,
           filePath: file,
           description: spec.description,
           // tags: spec.tags, // TODO: Add tags to WorkflowSpec if needed
-        })
-      } catch (error) {
+        }
+      })
+    )
+
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value !== null) {
+        workflows.push(result.value)
+      } else if (result.status === 'rejected') {
         // Log warning but continue
         console.warn(
-          `[WorkspaceWorkflowRegistry] Failed to load workflow from ${file}:`,
-          error instanceof Error ? error.message : String(error),
+          '[WorkspaceWorkflowRegistry] Failed to load workflow:',
+          result.reason instanceof Error ? result.reason.message : String(result.reason),
         )
       }
     }

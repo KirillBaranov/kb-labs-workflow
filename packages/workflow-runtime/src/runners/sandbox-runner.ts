@@ -44,6 +44,7 @@ import type {
   StepExecutionRequest,
   StepExecutionResult,
 } from '../types'
+import type { IAnalytics, ILogger } from '@kb-labs/core-platform'
 
 export interface SandboxRunnerOptions {
   /**
@@ -73,7 +74,7 @@ export interface SandboxRunnerOptions {
   /**
    * Platform analytics adapter (OPTIONAL)
    */
-  analytics?: import('@kb-labs/core-platform').IAnalytics
+  analytics?: IAnalytics
 }
 
 interface PluginCommandResolution {
@@ -96,8 +97,8 @@ export class SandboxRunner implements Runner {
   private readonly cliApi: CliAPI
   private readonly workspaceRoot: string
   private readonly defaultTimeout: number
-  private readonly analytics?: import('@kb-labs/core-platform').IAnalytics
-  private readonly logger?: import('@kb-labs/core-platform').ILogger
+  private readonly analytics?: IAnalytics
+  private readonly logger?: ILogger
 
   constructor(options: SandboxRunnerOptions) {
     this.backend = options.backend

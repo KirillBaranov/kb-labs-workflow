@@ -42,7 +42,9 @@ jobs:
     await writeFile(testFile, workflowContent)
 
     // Wait for file system
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 100)
+    })
 
     const workflows = await registry.list()
 
@@ -64,7 +66,9 @@ jobs: {}
     await writeFile(join(tempDir, 'workflows', 'nested', 'workflow.yml'), workflowContent)
 
     // Wait for file system
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 100)
+    })
 
     const workflows = await registry.list()
 
@@ -85,7 +89,9 @@ jobs: {}
     await writeFile(testFile, workflowContent)
 
     // Wait a bit for file system to sync
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 100)
+    })
 
     const resolved = await registry.resolve('workspace:test')
     expect(resolved).not.toBeNull()
@@ -105,7 +111,9 @@ jobs: {}
     await writeFile(join(tempDir, 'test.yml'), workflowContent)
 
     // Wait for file system
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 100)
+    })
 
     const first = await registry.list()
     const second = await registry.list()
@@ -125,7 +133,9 @@ jobs: {}
     await writeFile(join(tempDir, 'test.yml'), workflowContent)
 
     // Wait for file system
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 100)
+    })
 
     const first = await registry.list()
     const firstCount = first.length
@@ -135,7 +145,9 @@ jobs: {}
     await writeFile(secondFile, workflowContent)
     
     // Wait for file system
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 100)
+    })
     
     // Refresh cache
     await registry.refresh()
