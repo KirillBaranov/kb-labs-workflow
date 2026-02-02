@@ -148,7 +148,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
         };
 
         // Include detailed jobs and steps data for full inspection
-        const detailedResponse = {
+        return {
           ...jobInfo,
           jobs: run.jobs?.map(job => ({
             id: job.id,
@@ -171,8 +171,6 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
             })),
           })),
         };
-
-        return detailedResponse;
       } catch (error) {
         logger.error('Failed to get job status', error instanceof Error ? error : undefined);
         reply.code(500);

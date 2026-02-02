@@ -13,6 +13,7 @@ export default defineCommand<unknown, ListInput, { exitCode: number }>({
   description: 'List active workflow executions',
 
   handler: {
+    // eslint-disable-next-line sonarjs/cognitive-complexity -- Workflow listing with filtering (status/type), JSON/human output formats, run state formatting, and error handling
     async execute(ctx: PluginContextV3, input: ListInput): Promise<{ exitCode: number }> {
       const flags = (input as any).flags ?? input;
       const outputJson = flags.json ?? false;

@@ -28,6 +28,7 @@
     "@kb-labs/core-sys": "link:../../../kb-labs-core/packages/core-sys",
     "@kb-labs/plugin-contracts": "link:../../../kb-labs-plugin/packages/plugin-contracts",
     "@kb-labs/plugin-execution": "link:../../../kb-labs-plugin/packages/plugin-execution",
+    "@kb-labs/plugin-execution-factory": "link:../../../kb-labs-plugin/packages/plugin-execution-factory",
     "@kb-labs/workflow-contracts": "workspace:*",
     "@kb-labs/workflow-engine": "workspace:*",
     "@kb-labs/workflow-runtime": "workspace:*",

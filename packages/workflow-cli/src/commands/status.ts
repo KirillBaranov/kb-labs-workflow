@@ -13,6 +13,7 @@ export default defineCommand<unknown, StatusInput, { exitCode: number }>({
   description: 'Get status of a workflow job',
 
   handler: {
+    // eslint-disable-next-line sonarjs/cognitive-complexity -- Job status display with deep run/job/step traversal, multiple output formats (JSON/human), timing calculations, status color coding, and error aggregation
     async execute(ctx: PluginContextV3, input: StatusInput): Promise<{ exitCode: number }> {
       const flags = (input as any).flags ?? input;
       const outputJson = flags.json ?? false;

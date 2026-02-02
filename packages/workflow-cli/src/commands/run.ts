@@ -13,6 +13,7 @@ export default defineCommand<unknown, RunInput, { exitCode: number }>({
   description: 'Submit a job for execution',
 
   handler: {
+    // eslint-disable-next-line sonarjs/cognitive-complexity -- Workflow execution with input parsing, validation, wait mode (polling + websocket logs), JSON/human output, and error handling
     async execute(ctx: PluginContextV3, input: RunInput): Promise<{ exitCode: number }> {
       const flags = (input as any).flags ?? input;
       const outputJson = flags.json ?? false;

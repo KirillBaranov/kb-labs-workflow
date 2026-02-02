@@ -31,8 +31,7 @@ export class StateStore {
       return null
     }
     try {
-      const parsed = JSON.parse(payload) as WorkflowRun
-      return parsed
+      return JSON.parse(payload) as WorkflowRun
     } catch (error) {
       this.logger.error('Failed to parse stored workflow run', error instanceof Error ? error : undefined, {
         runId,

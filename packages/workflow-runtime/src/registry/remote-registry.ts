@@ -127,13 +127,11 @@ export class RemoteWorkflowRegistry implements WorkflowRegistry {
     for (const result of results) {
       if (result.status === 'fulfilled' && result.value !== null) {
         workflows.push(result.value)
-      } else if (result.status === 'rejected') {
-        if (this.logger?.warn) {
-          this.logger.warn('Failed to load workflow from remote file', {
-            remote: remote.name,
-            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-          })
-        }
+      } else if (result.status === 'rejected' && this.logger?.warn) {
+        this.logger.warn('Failed to load workflow from remote file', {
+          remote: remote.name,
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        })
       }
     }
 

@@ -645,6 +645,7 @@ export class WorkflowEngine {
   /**
    * Replay a run from a snapshot, optionally starting from a specific step
    */
+  // eslint-disable-next-line sonarjs/cognitive-complexity -- Replay orchestration: handles snapshot loading, step state transitions (before/at/after fromStep), env merging, job traversal, and conditional status reset logic
   async replayRun(
     runId: string,
     options: {
@@ -771,20 +772,17 @@ export class WorkflowEngine {
   /**
    * List all workflow runs.
    * Returns array of all runs in the system.
+   * Alias for getAllRuns() - maintained for backward compatibility.
    */
   async listRuns(): Promise<WorkflowRun[]> {
-    const runIds = await this.stateStore.getAllRunIds()
-
-    // Fetch all runs in parallel and filter out nulls
-    const runs = await Promise.all(runIds.map(id => this.stateStore.getRun(id)))
-
-    return runs.filter((run): run is WorkflowRun => run !== null)
+    return this.getAllRuns()
   }
 
   /**
    * Get workflow engine metrics.
    * Returns statistics about runs, jobs, and system health.
    */
+  // eslint-disable-next-line sonarjs/cognitive-complexity -- Metrics aggregation: iterates all runs and jobs, counts by status (6 run statuses + 4 job statuses), handles nulls
   async getMetrics(): Promise<{
     runs: {
       total: number

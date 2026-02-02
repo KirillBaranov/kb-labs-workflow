@@ -258,6 +258,7 @@ export class SandboxRunner implements Runner {
   /**
    * Map ExecutionResult to StepExecutionResult
    */
+  // eslint-disable-next-line sonarjs/cognitive-complexity -- Result mapping logic: handles success/failure/cancelled states, conditional stdout/stderr logging, debug metadata extraction, and error code translation
   private mapExecutionResult(
     result: Awaited<ReturnType<ExecutionBackend['execute']>>,
     executionId: string,

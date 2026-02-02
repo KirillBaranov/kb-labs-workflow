@@ -4,13 +4,15 @@
  * DRY pattern: Define flags once, use in both manifest and command handlers.
  */
 
+const OUTPUT_JSON_DESCRIPTION = 'Output result as JSON';
+
 /**
  * Flags for workflow:health command
  */
 export const healthFlags = {
   json: {
     type: 'boolean',
-    description: 'Output result as JSON',
+    description: OUTPUT_JSON_DESCRIPTION,
     default: false,
   },
 } as const;
@@ -23,7 +25,7 @@ export type HealthFlags = typeof healthFlags;
 export const metricsFlags = {
   json: {
     type: 'boolean',
-    description: 'Output result as JSON',
+    description: OUTPUT_JSON_DESCRIPTION,
     default: false,
   },
 } as const;
@@ -36,7 +38,7 @@ export type MetricsFlags = typeof metricsFlags;
 export const statusFlags = {
   json: {
     type: 'boolean',
-    description: 'Output result as JSON',
+    description: OUTPUT_JSON_DESCRIPTION,
     default: false,
   },
   'job-id': {
@@ -53,7 +55,7 @@ export type StatusFlags = typeof statusFlags;
 export const logsFlags = {
   json: {
     type: 'boolean',
-    description: 'Output result as JSON',
+    description: OUTPUT_JSON_DESCRIPTION,
     default: false,
   },
   'job-id': {
@@ -75,7 +77,7 @@ export type LogsFlags = typeof logsFlags;
 export const listFlags = {
   json: {
     type: 'boolean',
-    description: 'Output result as JSON',
+    description: OUTPUT_JSON_DESCRIPTION,
     default: false,
   },
   status: {
@@ -96,7 +98,7 @@ export type ListFlags = typeof listFlags;
 export const runFlags = {
   json: {
     type: 'boolean',
-    description: 'Output result as JSON',
+    description: OUTPUT_JSON_DESCRIPTION,
     default: false,
   },
   handler: {

@@ -12,6 +12,8 @@ import type {
   CronListResponse,
 } from '@kb-labs/workflow-contracts';
 
+const CRON_SCHEDULER_NOT_AVAILABLE = 'Cron scheduler not available';
+
 export interface CronAPIOptions {
   server: FastifyInstance;
   cronScheduler?: CronScheduler;
@@ -33,7 +35,7 @@ export function registerCronAPI(options: CronAPIOptions): void {
     async (request, reply) => {
       if (!cronScheduler) {
         reply.code(503);
-        return { error: 'Cron scheduler not available' };
+        return { error: CRON_SCHEDULER_NOT_AVAILABLE };
       }
 
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
@@ -83,7 +85,7 @@ export function registerCronAPI(options: CronAPIOptions): void {
     async (request, reply) => {
       if (!cronScheduler) {
         reply.code(503);
-        return { error: 'Cron scheduler not available' };
+        return { error: CRON_SCHEDULER_NOT_AVAILABLE };
       }
 
       const { id } = request.params;
@@ -110,7 +112,7 @@ export function registerCronAPI(options: CronAPIOptions): void {
   server.get('/api/v1/cron', async (request, reply) => {
     if (!cronScheduler) {
       reply.code(503);
-      return { error: 'Cron scheduler not available' };
+      return { error: CRON_SCHEDULER_NOT_AVAILABLE };
     }
 
     const _tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
@@ -160,7 +162,7 @@ export function registerCronAPI(options: CronAPIOptions): void {
     async (request, reply) => {
       if (!cronScheduler) {
         reply.code(503);
-        return { error: 'Cron scheduler not available' };
+        return { error: CRON_SCHEDULER_NOT_AVAILABLE };
       }
 
       const { id } = request.params;
@@ -189,7 +191,7 @@ export function registerCronAPI(options: CronAPIOptions): void {
     async (request, reply) => {
       if (!cronScheduler) {
         reply.code(503);
-        return { error: 'Cron scheduler not available' };
+        return { error: CRON_SCHEDULER_NOT_AVAILABLE };
       }
 
       const { id } = request.params;
@@ -218,7 +220,7 @@ export function registerCronAPI(options: CronAPIOptions): void {
     async (request, reply) => {
       if (!cronScheduler) {
         reply.code(503);
-        return { error: 'Cron scheduler not available' };
+        return { error: CRON_SCHEDULER_NOT_AVAILABLE };
       }
 
       const { id } = request.params;
