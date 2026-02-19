@@ -219,7 +219,10 @@ export class SandboxRunner implements Runner {
     context: StepExecutionRequest['context']
   ): ExecutionRequest {
     const requestId = context.trace?.traceId ?? randomUUID()
+    const traceId = context.trace?.traceId ?? requestId
     const executionId = `exec_${context.stepId}_${Date.now()}_${randomUUID().slice(0, 8)}`
+    const spanId = executionId
+    const invocationId = executionId
 
     const hostContext: HostContext = {
       host: 'workflow',
@@ -240,6 +243,12 @@ export class SandboxRunner implements Runner {
       hostContext,
       configSection: resolution.configSection, // For useConfig() auto-detection
     }
+    Object.assign(descriptor as unknown as Record<string, unknown>, {
+      traceId,
+      spanId,
+      invocationId,
+      executionId,
+    })
 
     return {
       executionId,

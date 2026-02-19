@@ -51,14 +51,6 @@ export async function createWorkflowWorker(
   // Track running jobs for graceful shutdown
   const runningJobs = new Map<string, Promise<void>>();
 
-  // Create logger adapter for RuntimeLogger interface
-  const runtimeLogger = {
-    debug: (message: string, meta?: Record<string, unknown>) => logger.debug(message, meta),
-    info: (message: string, meta?: Record<string, unknown>) => logger.info(message, meta),
-    warn: (message: string, meta?: Record<string, unknown>) => logger.warn(message, meta),
-    error: (message: string, meta?: Record<string, unknown>) => logger.error(message, undefined, meta),
-  };
-
   // Create SandboxRunner with ExecutionBackend
   const runner = new SandboxRunner({
     backend: executionBackend,
@@ -97,8 +89,17 @@ export async function createWorkflowWorker(
 
     const jobKey = `${run.id}:${job.id}`;
     const jobStartTime = Date.now();
+    const jobLogger = logger.child({
+      layer: 'workflow',
+      workflowId: run.id,
+      runId: run.id,
+      jobId: job.id,
+      requestId: run.id,
+      reqId: run.id,
+      traceId: run.id,
+    });
 
-    logger.info('Processing job', {
+    jobLogger.info('Processing job', {
       runId: run.id,
       jobId: job.id,
       jobName: job.jobName,
@@ -129,7 +130,16 @@ export async function createWorkflowWorker(
             continue; // Skip already completed steps
           }
 
-          logger.info('Executing step', {
+          const stepExecutionId = `wf-${run.id}-${job.id}-${step.id}-${Date.now()}`;
+          const stepLogger = jobLogger.child({
+            stepId: step.id,
+            attempt: 1,
+            executionId: stepExecutionId,
+            spanId: stepExecutionId,
+            invocationId: stepExecutionId,
+          });
+
+          stepLogger.info('Executing step', {
             runId: run.id,
             jobId: job.id,
             stepId: step.id,
@@ -147,7 +157,17 @@ export async function createWorkflowWorker(
               attempt: 1,
               env: run.env || ({} as Record<string, string>),
               secrets: {} as Record<string, string>, // TODO: map run.secrets array to Record
-              logger: runtimeLogger,
+              logger: {
+                debug: (message: string, meta?: Record<string, unknown>) => stepLogger.debug(message, meta),
+                info: (message: string, meta?: Record<string, unknown>) => stepLogger.info(message, meta),
+                warn: (message: string, meta?: Record<string, unknown>) => stepLogger.warn(message, meta),
+                error: (message: string, meta?: Record<string, unknown>) => stepLogger.error(message, undefined, meta),
+              },
+              trace: {
+                traceId: run.id,
+                spanId: stepExecutionId,
+                parentSpanId: job.id,
+              },
             },
             workspace: workspaceRoot,
           });
@@ -158,7 +178,7 @@ export async function createWorkflowWorker(
             // Mark step as failed (sets finishedAt timestamp + error)
             await engine.markStepFailed(run.id, job.id, step.id, error);
 
-            logger.error('Step failed', error, {
+            stepLogger.error('Step failed', error, {
               runId: run.id,
               jobId: job.id,
               stepId: step.id,
@@ -169,7 +189,7 @@ export async function createWorkflowWorker(
           // Mark step as completed (sets finishedAt timestamp + outputs)
           await engine.markStepCompleted(run.id, job.id, step.id, result.status === 'success' ? result.outputs : undefined);
 
-          logger.info('Step completed', {
+          stepLogger.info('Step completed', {
             runId: run.id,
             jobId: job.id,
             stepId: step.id,
@@ -181,7 +201,7 @@ export async function createWorkflowWorker(
         await engine.markJobCompleted(run.id, job.id);
 
         const jobDuration = Date.now() - jobStartTime;
-        logger.info('Job completed successfully', {
+        jobLogger.info('Job completed successfully', {
           runId: run.id,
           jobId: job.id,
         });

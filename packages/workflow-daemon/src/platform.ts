@@ -5,13 +5,52 @@
  */
 
 import type { PlatformConfig } from '@kb-labs/core-runtime';
-import { initPlatform, platform } from '@kb-labs/core-runtime';
+import {
+  initPlatform,
+  platform,
+  type PlatformLifecycleContext,
+  type PlatformLifecycleHooks,
+  type PlatformLifecyclePhase,
+} from '@kb-labs/core-runtime';
 import { findNearestConfig, readJsonWithDiagnostics } from '@kb-labs/core-config';
 
 /**
  * Whether platform has been initialized.
  */
 let _initialized = false;
+const WORKFLOW_LIFECYCLE_HOOK_ID = 'workflow-daemon';
+let _hooksRegistered = false;
+
+function ensureLifecycleHooksRegistered(): void {
+  if (_hooksRegistered) {
+    return;
+  }
+
+  const hooks: PlatformLifecycleHooks = {
+    onStart: (ctx: PlatformLifecycleContext) => {
+      process.stderr.write(
+        `[workflow-daemon] lifecycle:start cwd=${ctx.cwd ?? 'n/a'} child=${String(ctx.isChildProcess)}\n`
+      );
+    },
+    onReady: (ctx: PlatformLifecycleContext) => {
+      platform.logger.info('Platform lifecycle ready', {
+        app: 'workflow',
+        durationMs: ctx.metadata?.durationMs,
+      });
+    },
+    onShutdown: () => {
+      platform.logger.info('Platform lifecycle shutdown', { app: 'workflow' });
+    },
+    onError: (error: unknown, phase: PlatformLifecyclePhase) => {
+      process.stderr.write(
+        `[workflow-daemon] lifecycle:error phase=${phase} error=${error instanceof Error ? error.message : String(error)}\n`
+      );
+    },
+  };
+
+  platform.registerLifecycleHooks(WORKFLOW_LIFECYCLE_HOOK_ID, hooks);
+  _hooksRegistered = true;
+}
 
 /**
  * Initialize platform from kb.config.json.
@@ -21,6 +60,8 @@ let _initialized = false;
  * @param cwd - Workspace root directory to search for kb.config.json
  */
 export async function initializePlatform(cwd: string = process.cwd()): Promise<void> {
+  ensureLifecycleHooksRegistered();
+
   if (_initialized) {
     // Use stderr since logger not initialized yet
     process.stderr.write('[workflow-daemon] Platform already initialized, skipping\n');

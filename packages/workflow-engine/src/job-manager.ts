@@ -359,6 +359,9 @@ export class JobManager implements IJobScheduler {
     try {
       // Build execution request
       const executionId = `job-${jobId}-${record.attempt}`;
+      const traceId = executionId;
+      const spanId = executionId;
+      const invocationId = executionId;
 
       // Create minimal descriptor for job context
       const descriptor: PluginContextDescriptor = {
@@ -375,6 +378,12 @@ export class JobManager implements IJobScheduler {
         requestId: executionId,
         tenantId: record.tenantId,
       };
+      Object.assign(descriptor as unknown as Record<string, unknown>, {
+        traceId,
+        spanId,
+        invocationId,
+        executionId,
+      });
 
       const request: ExecutionRequest = {
         executionId,
