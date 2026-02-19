@@ -12,5 +12,11 @@ export default [
       '**/vitest.config.ts',
       '**/*.vue'
     ]
-  }
+  },
+  {
+    // Workflow engine orchestrates async jobs — await-in-loop matters here
+    rules: {
+      'no-await-in-loop': 'warn',
+    },
+  },
 ];
