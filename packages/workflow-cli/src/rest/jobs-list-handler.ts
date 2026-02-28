@@ -29,6 +29,12 @@ interface JobListResponse {
   jobs: JobStatusInfo[];
 }
 
+interface ApiEnvelope<T> {
+  ok: boolean;
+  data?: T;
+  error?: string;
+}
+
 export default defineHandler({
   async execute(
     ctx: PluginContextV3,
@@ -63,7 +69,11 @@ export default defineHandler({
         throw new Error(errorData.error || 'Failed to fetch jobs list');
       }
 
-      const data = (await response.json()) as JobListResponse;
+      const payload = (await response.json()) as ApiEnvelope<JobListResponse>;
+      if (!payload.ok || !payload.data) {
+        throw new Error(payload.error || 'Failed to fetch jobs list');
+      }
+      const data = payload.data;
       ctx.platform.logger.info(`[jobs-list-handler] Fetched ${data.jobs.length} jobs`);
       return data;
     } catch (error) {

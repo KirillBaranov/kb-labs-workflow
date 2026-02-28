@@ -21,6 +21,12 @@ interface CronListResponse {
   crons: CronInfo[];
 }
 
+interface ApiEnvelope<T> {
+  ok: boolean;
+  data?: T;
+  error?: string;
+}
+
 export default defineHandler({
   async execute(
     ctx: PluginContextV3,
@@ -45,7 +51,11 @@ export default defineHandler({
         throw new Error(errorData.error || 'Failed to fetch cron jobs');
       }
 
-      const data = (await response.json()) as CronListResponse;
+      const payload = (await response.json()) as ApiEnvelope<CronListResponse>;
+      if (!payload.ok || !payload.data) {
+        throw new Error(payload.error || 'Failed to fetch cron jobs');
+      }
+      const data = payload.data;
       ctx.platform.logger.info(`[cron-list-handler] Fetched ${data.crons.length} cron jobs`);
       return data;
     } catch (error) {

@@ -26,11 +26,12 @@ export default defineCommand<unknown, ListInput, { exitCode: number }>({
         // Handle --type cron filter
         if (typeFilter === 'cron') {
           const result = await client.getCronJobs();
+          const cronJobs = result.crons ?? [];
 
           if (outputJson) {
             ctx.ui?.json?.({ ok: true, data: result });
           } else {
-            if (result.cronJobs.length === 0) {
+            if (cronJobs.length === 0) {
               ctx.ui?.warn?.('No cron jobs found');
               ctx.ui?.info?.('');
               ctx.ui?.info?.('To add cron jobs:');
@@ -38,25 +39,18 @@ export default defineCommand<unknown, ListInput, { exitCode: number }>({
               ctx.ui?.info?.('  2. User YAML: Create .kb/jobs/*.yml files');
             } else {
               // Build job details
-              const jobItems = result.cronJobs.map(job => {
+              const jobItems = cronJobs.map(job => {
                 const parts = [
                   `ID: ${job.id}`,
                   `Schedule: ${job.schedule} (${job.timezone || 'UTC'})`,
-                  `Priority: ${job.priority}`,
                   `Enabled: ${job.enabled ? 'Yes' : 'No'}`,
+                  `Type: ${job.jobType || 'unknown'}`,
                 ];
-                if (job.handler) {
-                  parts.push(`Handler: ${job.handler}`);
-                }
-                if (job.workflowName) {
-                  parts.push(`Workflow: ${job.workflowName}`);
-                }
                 return parts.join(' | ');
               });
 
               const summaryItems = [
-                `Total Jobs: ${result.total}`,
-                `Scheduler: ${result.running ? 'Running' : 'Stopped'}`,
+                `Total Jobs: ${cronJobs.length}`,
               ];
 
               ctx.ui?.success?.('Cron Jobs', {
@@ -126,4 +120,3 @@ export default defineCommand<unknown, ListInput, { exitCode: number }>({
     },
   },
 });
-

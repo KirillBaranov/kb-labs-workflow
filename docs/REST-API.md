@@ -17,8 +17,8 @@ Plugin Handler → HTTP Client → Workflow Service REST API → JobBroker/CronS
    - Enforces permission checks (platform.jobs, platform.cron)
 
 2. **REST API Routes** (`workflow-daemon/src/api/`)
-   - `/api/jobs` - Job management endpoints
-   - `/api/cron` - Cron schedule management endpoints
+   - `/api/v1/jobs` - Job management endpoints
+   - `/api/v1/cron` - Cron schedule management endpoints
    - Uses Fastify with CORS support
 
 3. **REST API Contracts** (`workflow-contracts/src/rest-api.ts`)
@@ -40,7 +40,7 @@ If not set, Jobs/Cron APIs will use noop implementations (throw "not available" 
 
 ### Submit Job
 
-**Endpoint:** `POST /api/jobs`
+**Endpoint:** `POST /api/v1/jobs`
 
 **Headers:**
 - `X-Tenant-ID`: Tenant identifier (default: "default")
@@ -68,7 +68,7 @@ If not set, Jobs/Cron APIs will use noop implementations (throw "not available" 
 
 ### Get Job Status
 
-**Endpoint:** `GET /api/jobs/{jobId}`
+**Endpoint:** `GET /api/v1/jobs/{jobId}`
 
 **Headers:**
 - `X-Tenant-ID`: Tenant identifier
@@ -96,7 +96,7 @@ If not set, Jobs/Cron APIs will use noop implementations (throw "not available" 
 
 ### Cancel Job
 
-**Endpoint:** `POST /api/jobs/{jobId}/cancel`
+**Endpoint:** `POST /api/v1/jobs/{jobId}/cancel`
 
 **Headers:**
 - `X-Tenant-ID`: Tenant identifier
@@ -110,7 +110,7 @@ If not set, Jobs/Cron APIs will use noop implementations (throw "not available" 
 
 ### List Jobs
 
-**Endpoint:** `GET /api/jobs?type={pattern}&status={status}&limit={N}&offset={N}`
+**Endpoint:** `GET /api/v1/jobs?type={pattern}&status={status}&limit={N}&offset={N}`
 
 **Headers:**
 - `X-Tenant-ID`: Tenant identifier
@@ -142,7 +142,7 @@ If not set, Jobs/Cron APIs will use noop implementations (throw "not available" 
 
 ### Register Cron Job
 
-**Endpoint:** `POST /api/cron`
+**Endpoint:** `POST /api/v1/cron`
 
 **Headers:**
 - `X-Tenant-ID`: Tenant identifier
@@ -177,7 +177,7 @@ If not set, Jobs/Cron APIs will use noop implementations (throw "not available" 
 
 ### Unregister Cron Job
 
-**Endpoint:** `DELETE /api/cron/{id}`
+**Endpoint:** `DELETE /api/v1/cron/{id}`
 
 **Headers:**
 - `X-Tenant-ID`: Tenant identifier
@@ -191,7 +191,7 @@ If not set, Jobs/Cron APIs will use noop implementations (throw "not available" 
 
 ### List Cron Jobs
 
-**Endpoint:** `GET /api/cron`
+**Endpoint:** `GET /api/v1/cron`
 
 **Headers:**
 - `X-Tenant-ID`: Tenant identifier
@@ -215,7 +215,7 @@ If not set, Jobs/Cron APIs will use noop implementations (throw "not available" 
 
 ### Trigger Cron Job (Manual)
 
-**Endpoint:** `POST /api/cron/{id}/trigger`
+**Endpoint:** `POST /api/v1/cron/{id}/trigger`
 
 **Headers:**
 - `X-Tenant-ID`: Tenant identifier
@@ -231,7 +231,7 @@ Executes cron job immediately, regardless of schedule.
 
 ### Pause Cron Job
 
-**Endpoint:** `POST /api/cron/{id}/pause`
+**Endpoint:** `POST /api/v1/cron/{id}/pause`
 
 **Headers:**
 - `X-Tenant-ID`: Tenant identifier
@@ -247,7 +247,7 @@ Stops cron job from running on schedule. Job registration is kept.
 
 ### Resume Cron Job
 
-**Endpoint:** `POST /api/cron/{id}/resume`
+**Endpoint:** `POST /api/v1/cron/{id}/resume`
 
 **Headers:**
 - `X-Tenant-ID`: Tenant identifier
@@ -363,9 +363,9 @@ export async function execute(ctx: Context) {
 
 These endpoints are kept for backward compatibility:
 
-- `POST /jobs/submit` - Use `POST /api/jobs` instead
-- `GET /jobs/:id/status` - Use `GET /api/jobs/:id` instead
-- `GET /cron/jobs` - Use `GET /api/cron` instead
+- `POST /jobs/submit` - Use `POST /api/v1/jobs` instead
+- `GET /jobs/:id/status` - Use `GET /api/v1/jobs/:id` instead
+- `GET /cron/jobs` - Use `GET /api/v1/cron` instead
 
 ## Related Files
 

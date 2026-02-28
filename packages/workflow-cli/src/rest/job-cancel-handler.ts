@@ -14,6 +14,12 @@ interface JobCancelResponse {
   cancelled: boolean;
 }
 
+interface ApiEnvelope<T> {
+  ok: boolean;
+  data?: T;
+  error?: string;
+}
+
 export default defineHandler({
   async execute(
     ctx: PluginContextV3,
@@ -43,7 +49,11 @@ export default defineHandler({
         throw new Error(errorData.error || `Failed to cancel job ${jobId}`);
       }
 
-      const data = (await response.json()) as JobCancelResponse;
+      const payload = (await response.json()) as ApiEnvelope<JobCancelResponse>;
+      if (!payload.ok || !payload.data) {
+        throw new Error(payload.error || `Failed to cancel job ${jobId}`);
+      }
+      const data = payload.data;
       ctx.platform.logger.info(`[job-cancel-handler] Job ${jobId} cancelled: ${data.cancelled}`);
       return data;
     } catch (error) {

@@ -12,6 +12,7 @@ import {
   logsFlags,
   listFlags,
   runFlags,
+  workflowRunFlags,
 } from './flags';
 import {
   WORKFLOW_BASE_PATH,
@@ -36,7 +37,7 @@ const pluginPermissions = combinePermissions()
 export const manifest = {
   schema: 'kb.plugin/3',
   id: '@kb-labs/workflow',
-  version: '0.1.0',
+  version: '1.0.0',
 
   display: {
     name: 'Workflow CLI',
@@ -155,11 +156,11 @@ export const manifest = {
         ],
       },
 
-      // workflow:run - Submit job for execution
+      // workflow:job-run - Submit raw job for execution
       {
-        id: 'workflow:run',
+        id: 'workflow:job-run',
         group: 'workflow',
-        describe: 'Submit a job for execution.',
+        describe: 'Submit a raw job for execution.',
         longDescription:
           'Submits a job to the workflow daemon for execution. Requires a handler (plugin command) and ' +
           'optionally accepts input parameters as JSON. Can wait for job completion with --wait flag.',
@@ -170,10 +171,31 @@ export const manifest = {
         flags: defineCommandFlags(runFlags),
 
         examples: [
-          'kb workflow run --handler=mind:rag-query --input=\'{"text":"test"}\'',
-          'kb workflow run --handler=mind:rag-query --input=\'{"text":"test"}\' --wait',
-          'kb workflow run --handler=mind:rag-query --input=\'{"text":"test"}\' --priority=8',
-          'kb workflow run --handler=mind:rag-query --input=\'{"text":"test"}\' --json',
+          'kb workflow job-run --handler=mind:rag-query --input=\'{"text":"test"}\'',
+          'kb workflow job-run --handler=mind:rag-query --input=\'{"text":"test"}\' --wait',
+          'kb workflow job-run --handler=mind:rag-query --input=\'{"text":"test"}\' --priority=8',
+          'kb workflow job-run --handler=mind:rag-query --input=\'{"text":"test"}\' --json',
+        ],
+      },
+
+      // workflow:run - Run workflow by workflow ID
+      {
+        id: 'workflow:run',
+        group: 'workflow',
+        describe: 'Run workflow by ID.',
+        longDescription:
+          'Runs a workflow definition by workflow ID via /api/v1/workflows/:id/run endpoint. ' +
+          'Supports request-level target and isolation overrides.',
+
+        handler: './commands/workflow-run.js#default',
+        handlerPath: './commands/workflow-run.js',
+
+        flags: defineCommandFlags(workflowRunFlags),
+
+        examples: [
+          'kb workflow run --workflow-id=release-manager/create-release',
+          'kb workflow run --workflow-id=release-manager/create-release --isolation=strict --target-namespace=team-a/prod',
+          'kb workflow run --workflow-id=release-manager/create-release --target-environment-id=env-123 --json',
         ],
       },
     ],

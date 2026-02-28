@@ -1,6 +1,7 @@
 /**
  * HTTP client for interacting with Workflow Daemon
  */
+import type { WorkflowRunRequest } from '@kb-labs/workflow-contracts';
 
 const DEFAULT_DAEMON_URL = 'http://localhost:7778';
 
@@ -31,6 +32,19 @@ export class WorkflowDaemonClient {
       throw new Error(`Invalid Content-Type: expected application/json, got ${contentType}`);
     }
     return response.json() as Promise<T>;
+  }
+
+  private unwrapData<T>(payload: unknown): T {
+    if (
+      payload
+      && typeof payload === 'object'
+      && 'ok' in payload
+      && (payload as any).ok === true
+      && 'data' in payload
+    ) {
+      return (payload as { data: T }).data;
+    }
+    return payload as T;
   }
 
   /**
@@ -65,7 +79,7 @@ export class WorkflowDaemonClient {
       throw new Error(`Failed to get metrics: ${response.statusText}`);
     }
     const data = await this.parseJsonResponse<any>(response);
-    return data.data;
+    return this.unwrapData(data);
   }
 
   /**
@@ -80,7 +94,8 @@ export class WorkflowDaemonClient {
     if (!response.ok) {
       throw new Error(`Failed to get job status: ${response.statusText}`);
     }
-    return this.parseJsonResponse(response);
+    const data = await this.parseJsonResponse<any>(response);
+    return this.unwrapData(data);
   }
 
   /**
@@ -96,7 +111,7 @@ export class WorkflowDaemonClient {
       throw new Error(`Failed to get job steps: ${response.statusText}`);
     }
     const data = await this.parseJsonResponse<any>(response);
-    return data.data;
+    return this.unwrapData(data);
   }
 
   /**
@@ -112,35 +127,36 @@ export class WorkflowDaemonClient {
       throw new Error(`Failed to get job logs: ${response.statusText}`);
     }
     const data = await this.parseJsonResponse<any>(response);
-    return data.data.logs;
+    const unwrapped = this.unwrapData<{ logs: any[] }>(data);
+    return unwrapped.logs ?? [];
   }
 
   /**
    * Get active executions
    */
   async getExecutions(): Promise<any[]> {
-    const response = await fetch(`${this.baseUrl}/api/v1/executions`);
+    const response = await fetch(`${this.baseUrl}/api/v1/jobs`);
     if (!response.ok) {
       throw new Error(`Failed to get executions: ${response.statusText}`);
     }
     const data = await this.parseJsonResponse<any>(response);
-    return data.data.executions;
+    const unwrapped = this.unwrapData<{ jobs?: any[] }>(data);
+    const jobs = unwrapped.jobs ?? [];
+    return jobs.filter((job: any) => job.status === 'running' || job.status === 'pending');
   }
 
   /**
    * Get cron jobs
    */
   async getCronJobs(): Promise<{
-    cronJobs: any[];
-    total: number;
-    running: boolean;
+    crons: any[];
   }> {
-    const response = await fetch(`${this.baseUrl}/api/v1/cron/jobs`);
+    const response = await fetch(`${this.baseUrl}/api/v1/cron`);
     if (!response.ok) {
       throw new Error(`Failed to get cron jobs: ${response.statusText}`);
     }
     const data = await this.parseJsonResponse<any>(response);
-    return data.data;
+    return this.unwrapData(data);
   }
 
   /**
@@ -151,12 +167,16 @@ export class WorkflowDaemonClient {
     input?: unknown;
     priority?: number;
   }): Promise<{ id: string; status: string }> {
-    const response = await fetch(`${this.baseUrl}/jobs/submit`, {
+    const response = await fetch(`${this.baseUrl}/api/v1/jobs`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(params),
+      body: JSON.stringify({
+        type: params.handler,
+        payload: params.input,
+        priority: params.priority,
+      }),
     });
 
     if (!response.ok) {
@@ -166,7 +186,37 @@ export class WorkflowDaemonClient {
       throw new Error(error.error || `Failed to submit job: ${response.statusText}`);
     }
 
-    const data = await this.parseJsonResponse<{ data: { id: string; status: string } }>(response);
-    return data.data;
+    const payload = await this.parseJsonResponse<any>(response);
+    const data = this.unwrapData<{ jobId: string }>(payload);
+    return { id: data.jobId, status: 'pending' };
+  }
+
+  /**
+   * Run workflow by ID
+   */
+  async runWorkflow(
+    workflowId: string,
+    request: WorkflowRunRequest = {}
+  ): Promise<{ runId: string; status: string }> {
+    const response = await fetch(
+      `${this.baseUrl}/api/v1/workflows/${encodeURIComponent(workflowId)}/run`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      }
+    );
+
+    if (!response.ok) {
+      const error = (await response.json().catch(() => ({ error: response.statusText }))) as {
+        error?: string;
+      };
+      throw new Error(error.error || `Failed to run workflow: ${response.statusText}`);
+    }
+
+    const payload = await this.parseJsonResponse<{ ok: boolean; data?: { runId: string; status: string } }>(response);
+    return this.unwrapData<{ runId: string; status: string }>(payload);
   }
 }

@@ -93,7 +93,7 @@ export const listFlags = {
 export type ListFlags = typeof listFlags;
 
 /**
- * Flags for workflow:run command
+ * Flags for workflow:job-run command
  */
 export const runFlags = {
   json: {
@@ -121,3 +121,52 @@ export const runFlags = {
 } as const;
 
 export type RunFlags = typeof runFlags;
+
+/**
+ * Flags for workflow:run command
+ */
+export const workflowRunFlags = {
+  json: {
+    type: 'boolean',
+    description: OUTPUT_JSON_DESCRIPTION,
+    default: false,
+  },
+  'workflow-id': {
+    type: 'string',
+    description: 'Workflow ID to run (e.g., "release-manager/create-release")',
+  },
+  input: {
+    type: 'string',
+    description: 'JSON string of workflow input payload',
+  },
+  isolation: {
+    type: 'string',
+    description: 'Isolation profile: strict, balanced, or relaxed',
+  },
+  'target-namespace': {
+    type: 'string',
+    description: 'Execution target namespace',
+  },
+  'target-environment-id': {
+    type: 'string',
+    description: 'Execution target environment ID',
+  },
+  'target-workspace-id': {
+    type: 'string',
+    description: 'Execution target workspace ID',
+  },
+  'target-workdir': {
+    type: 'string',
+    description: 'Execution target workdir override',
+  },
+  'trigger-type': {
+    type: 'string',
+    description: 'Trigger type: manual, api, or cron',
+  },
+  'trigger-user': {
+    type: 'string',
+    description: 'Trigger user',
+  },
+} as const;
+
+export type WorkflowRunFlags = typeof workflowRunFlags;

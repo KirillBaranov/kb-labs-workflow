@@ -1,6 +1,6 @@
 {
   "name": "@kb-labs/workflow-daemon",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Workflow daemon for KB Labs - standalone service for background job execution",
   "type": "module",

@@ -1,5 +1,5 @@
 /**
- * workflow:run command - Submit a job for execution
+ * workflow:job-run command - Submit a raw job for execution
  */
 
 import { defineCommand, type PluginContextV3, useLoader } from '@kb-labs/sdk';
@@ -9,8 +9,8 @@ import { type RunFlags } from '../flags.js';
 type RunInput = RunFlags & { argv?: string[] };
 
 export default defineCommand<unknown, RunInput, { exitCode: number }>({
-  id: 'workflow:run',
-  description: 'Submit a job for execution',
+  id: 'workflow:job-run',
+  description: 'Submit a raw job for execution',
 
   handler: {
     // eslint-disable-next-line sonarjs/cognitive-complexity -- Workflow execution with input parsing, validation, wait mode (polling + websocket logs), JSON/human output, and error handling
@@ -27,8 +27,8 @@ export default defineCommand<unknown, RunInput, { exitCode: number }>({
           ctx.ui?.json?.({ ok: false, error: 'Missing required flag: --handler' });
         } else {
           ctx.ui?.error?.('Missing required flag: --handler');
-          ctx.ui?.info?.('Usage: kb workflow run --handler=<handler> [--input=<json>]');
-          ctx.ui?.info?.('Example: kb workflow run --handler=mind:rag-query --input=\'{"text":"test"}\'');
+          ctx.ui?.info?.('Usage: kb workflow job-run --handler=<handler> [--input=<json>]');
+          ctx.ui?.info?.('Example: kb workflow job-run --handler=mind:rag-query --input=\'{"text":"test"}\'');
         }
         return { exitCode: 1 };
       }
@@ -135,4 +135,3 @@ export default defineCommand<unknown, RunInput, { exitCode: number }>({
     },
   },
 });
-
