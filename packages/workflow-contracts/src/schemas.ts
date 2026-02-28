@@ -44,6 +44,15 @@ export const RetryPolicySchema = z.object({
 
 export const TimeoutSchema = z.number().int().positive().max(1000 * 60 * 60 * 24) // <= 24h
 
+export const ExecutionTargetSchema = z.object({
+  environmentId: z.string().min(1).optional(),
+  workspaceId: z.string().min(1).optional(),
+  namespace: z.string().min(1).optional(),
+  workdir: z.string().min(1).optional(),
+})
+
+export const IsolationProfileSchema = z.enum(['strict', 'balanced', 'relaxed'])
+
 export const StepSpecSchema = z.object({
   name: z.string().min(1),
   uses: z
@@ -98,6 +107,8 @@ export const JobHooksSchema = z
 
 export const JobSpecSchema = z.object({
   runsOn: z.enum(['local', 'sandbox']),
+  target: ExecutionTargetSchema.optional(),
+  isolation: IsolationProfileSchema.optional(),
   concurrency: JobConcurrencySchema.optional(),
   steps: z.array(StepSpecSchema).min(1),
   artifacts: JobArtifactsSchema,
@@ -146,6 +157,8 @@ export const WorkflowSpecSchema = z
     name: z.string().min(1),
     version: z.string().min(1),
     description: z.string().optional(),
+    target: ExecutionTargetSchema.optional(),
+    isolation: IsolationProfileSchema.optional(),
     on: WorkflowTriggerSchema,
     env: z.record(z.string(), z.string()).optional(),
     secrets: z.array(z.string().min(1)).optional(),
@@ -204,6 +217,8 @@ export const JobRunSchema = z.object({
   concurrency: JobConcurrencySchema.optional(),
   retries: RetryPolicySchema.optional(),
   timeoutMs: TimeoutSchema.optional(),
+  target: ExecutionTargetSchema.optional(),
+  isolation: IsolationProfileSchema.optional(),
   artifacts: JobArtifactsSchema,
   error: StepRunErrorSchema.optional(),
   env: z.record(z.string(), z.string()).optional(),
@@ -228,6 +243,8 @@ export const RunTriggerSchema = z.object({
 export const RunMetadataSchema = z.object({
   idempotencyKey: IdempotencyKeySchema.optional(),
   concurrencyGroup: ConcurrencyGroupSchema.optional(),
+  target: ExecutionTargetSchema.optional(),
+  isolation: IsolationProfileSchema.optional(),
   workflowId: z.string().optional(),
   workflowDepth: z.number().int().nonnegative().optional(),
   parentRunId: z.string().optional(),
@@ -284,6 +301,5 @@ export const RunSchema = z.object({
   metadata: RunMetadataSchema.optional(),
   result: ExecutionResultSchema.optional(),
 })
-
 
 

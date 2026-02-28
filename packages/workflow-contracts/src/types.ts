@@ -19,6 +19,8 @@ import {
   ArtifactMergeStrategySchema,
   ArtifactMergeSourceSchema,
   ArtifactMergeConfigSchema,
+  ExecutionTargetSchema,
+  IsolationProfileSchema,
 } from './schemas'
 
 export type WorkflowSpec = z.infer<typeof WorkflowSpecSchema>
@@ -28,6 +30,8 @@ export type JobHooks = z.infer<typeof JobHooksSchema>
 export type ArtifactMergeStrategy = z.infer<typeof ArtifactMergeStrategySchema>
 export type ArtifactMergeSource = z.infer<typeof ArtifactMergeSourceSchema>
 export type ArtifactMergeConfig = z.infer<typeof ArtifactMergeConfigSchema>
+export type ExecutionTarget = z.infer<typeof ExecutionTargetSchema>
+export type IsolationProfile = z.infer<typeof IsolationProfileSchema>
 
 export type RetryPolicy = z.infer<typeof RetryPolicySchema>
 export type WorkflowRun = z.infer<typeof RunSchema>

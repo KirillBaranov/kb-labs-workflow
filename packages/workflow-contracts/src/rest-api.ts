@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod'
+import type { ExecutionTarget, IsolationProfile } from './types'
 
 /**
  * Job submission request (POST /api/jobs)
@@ -179,6 +180,10 @@ export interface WorkflowListResponse {
 export interface WorkflowRunRequest {
   /** Workflow input payload */
   input?: unknown;
+  /** Execution target override for this run */
+  target?: ExecutionTarget;
+  /** Isolation profile override for this run */
+  isolation?: IsolationProfile;
   /** Trigger metadata */
   trigger?: {
     type: 'manual' | 'api' | 'cron';
@@ -281,6 +286,13 @@ export const WorkflowListResponseSchema = z.object({
  */
 export const WorkflowRunRequestSchema = z.object({
   input: z.unknown().optional(),
+  target: z.object({
+    environmentId: z.string().min(1).optional(),
+    workspaceId: z.string().min(1).optional(),
+    namespace: z.string().min(1).optional(),
+    workdir: z.string().min(1).optional(),
+  }).optional(),
+  isolation: z.enum(['strict', 'balanced', 'relaxed']).optional(),
   trigger: z.object({
     type: z.enum(['manual', 'api', 'cron']),
     user: z.string().optional(),
