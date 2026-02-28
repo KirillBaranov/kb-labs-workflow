@@ -4,14 +4,14 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import type { WorkflowService, WorkflowEngine } from '@kb-labs/workflow-engine';
 import type { ILogger } from '@kb-labs/core-platform';
-import type { WorkflowListResponse, WorkflowInfo, WorkflowRunRequest } from '@kb-labs/workflow-contracts';
+import type { WorkflowRunRequest } from '@kb-labs/workflow-contracts';
+import type { WorkflowHostService } from '../host/workflow-host-service.js';
+import { fail, ok } from './response.js';
 
 export interface RegisterWorkflowsAPIOptions {
   server: FastifyInstance;
-  workflowService: WorkflowService;
-  engine: WorkflowEngine;
+  hostService: WorkflowHostService;
   logger: ILogger;
 }
 
@@ -24,7 +24,7 @@ export interface RegisterWorkflowsAPIOptions {
  * - POST /api/v1/workflows/:id/run - Run a workflow
  */
 export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void {
-  const { server, workflowService, engine, logger } = options;
+  const { server, hostService, logger } = options;
 
   // GET /api/v1/workflows - List all workflow definitions
   server.get<{
@@ -35,40 +35,11 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
     };
   }>('/api/v1/workflows', async (request, reply) => {
     try {
-      const { source, status, tags } = request.query;
-
-      // Map REST API status ('active'|'inactive') to internal status
-      const internalStatus: 'active' | 'paused' | 'disabled' | undefined = status === 'inactive' ? 'disabled' : status;
-
-      const workflows = await workflowService.listAll({
-        source,
-        status: internalStatus,
-        tags: tags ? tags.split(',') : undefined,
-      });
-
-      const workflowInfos: WorkflowInfo[] = workflows.map((w) => ({
-        id: w.id,
-        name: w.name,
-        description: w.description,
-        source: w.source,
-        pluginId: w.pluginId,
-        // Map internal status to REST API status
-        status: w.status === 'active' ? 'active' : 'inactive',
-        tags: w.tags,
-      }));
-
-      const response: WorkflowListResponse = {
-        workflows: workflowInfos,
-      };
-
-      return { ok: true, data: response };
+      const response = await hostService.listWorkflows(request.query);
+      return ok(response);
     } catch (error) {
       logger.error('[workflows-api] Error listing workflows', error instanceof Error ? error : undefined);
-      reply.code(500);
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : 'Failed to list workflows',
-      };
+      return fail(reply, 500, error instanceof Error ? error.message : 'Failed to list workflows');
     }
   });
 
@@ -78,36 +49,14 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   }>('/api/v1/workflows/:id', async (request, reply) => {
     try {
       const { id } = request.params;
-
-      const workflow = await workflowService.get(id);
-
+      const workflow = await hostService.getWorkflow(id);
       if (!workflow) {
-        reply.code(404);
-        return {
-          ok: false,
-          error: 'Workflow not found',
-        };
+        return fail(reply, 404, 'Workflow not found');
       }
-
-      const workflowInfo: WorkflowInfo = {
-        id: workflow.id,
-        name: workflow.name,
-        description: workflow.description,
-        source: workflow.source,
-        pluginId: workflow.pluginId,
-        // Map internal status to REST API status
-        status: workflow.status === 'active' ? 'active' : 'inactive',
-        tags: workflow.tags,
-      };
-
-      return { ok: true, data: workflowInfo };
+      return ok(workflow);
     } catch (error) {
       logger.error('[workflows-api] Error getting workflow', error instanceof Error ? error : undefined);
-      reply.code(500);
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : 'Failed to get workflow',
-      };
+      return fail(reply, 500, error instanceof Error ? error.message : 'Failed to get workflow');
     }
   });
 
@@ -118,48 +67,15 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   }>('/api/v1/workflows/:id/run', async (request, reply) => {
     try {
       const { id } = request.params;
-      const { input, trigger } = request.body || {};
-
-      // Get workflow runtime (includes spec in input field)
-      const workflow = await workflowService.get(id);
-
-      if (!workflow) {
-        reply.code(404);
-        return {
-          ok: false,
-          error: 'Workflow not found',
-        };
-      }
-
-      // WorkflowRuntime.input contains the full WorkflowSpec
-      const spec = workflow.input as any;
-
-      // Map trigger type to RunTriggerSchema values
-      const triggerType = trigger?.type === 'cron' ? 'schedule' : trigger?.type === 'api' ? 'webhook' : 'manual';
-
-      // Execute workflow using runFromSpec (correct WorkflowEngine API)
-      const run = await engine.runFromSpec(spec, {
-        trigger: {
-          type: triggerType,
-          actor: trigger?.user,
-        },
-        env: input && typeof input === 'object' ? (input as Record<string, string>) : undefined,
-      });
-
-      return {
-        ok: true,
-        data: {
-          runId: run.id,
-          status: run.status,
-        },
-      };
+      const response = await hostService.runWorkflow(id, request.body || {});
+      return ok(response);
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to run workflow';
+      if (message === 'Workflow not found') {
+        return fail(reply, 404, message);
+      }
       logger.error('[workflows-api] Error running workflow', error instanceof Error ? error : undefined);
-      reply.code(500);
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : 'Failed to run workflow',
-      };
+      return fail(reply, 500, message);
     }
   });
 

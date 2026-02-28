@@ -109,6 +109,8 @@ export class RunCoordinator {
       const jobId = `${runId}:${jobName}`
       const needs = Array.isArray(jobSpec.needs) ? [...jobSpec.needs] : []
       const priority = jobSpec.priority ?? 'normal'
+      const effectiveTarget = jobSpec.target ?? input.spec.target
+      const effectiveIsolation = jobSpec.isolation ?? input.spec.isolation
       const stepRuns: StepRun[] = jobSpec.steps.map((step, index) => ({
         id: `${jobId}:${index}`,
         runId,
@@ -135,6 +137,8 @@ export class RunCoordinator {
         concurrency: jobSpec.concurrency,
         retries: jobSpec.retries,
         timeoutMs: jobSpec.timeoutMs,
+        target: effectiveTarget,
+        isolation: effectiveIsolation,
         artifacts: jobSpec.artifacts,
         env: jobSpec.env,
         secrets: jobSpec.secrets,
@@ -159,6 +163,8 @@ export class RunCoordinator {
       metadata: {
         idempotencyKey: input.idempotencyKey,
         concurrencyGroup: input.concurrencyGroup,
+        target: input.spec.target,
+        isolation: input.spec.isolation,
       },
       artifacts: [],
     }
@@ -214,5 +220,4 @@ export class RunCoordinator {
     })
   }
 }
-
 

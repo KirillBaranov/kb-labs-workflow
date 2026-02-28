@@ -1,7 +1,9 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { join, dirname } from 'node:path'
+import { join } from 'node:path'
 import type { ArtifactMergeConfig, ArtifactMergeStrategy } from '@kb-labs/workflow-contracts'
-import type { ArtifactClient } from '@kb-labs/workflow-artifacts'
+import {
+  createFileSystemArtifactClient,
+  type ArtifactClient,
+} from '@kb-labs/workflow-artifacts'
 import type { StateStore } from './state-store'
 import type { EngineLogger } from './types'
 
@@ -94,16 +96,15 @@ export class ArtifactMerger {
     }
 
     // Load artifacts from filesystem (parallel execution)
-    const jobRoot = join(
+    const sourceArtifacts = createFileSystemArtifactClient(join(
       this.options.artifactsRoot,
       runId,
       job.jobName,
-    )
+    ))
 
     const results = await Promise.allSettled(
       artifactPaths.map(artifactPath => {
-        const fullPath = join(jobRoot, artifactPath)
-        return this.loadArtifactContent(fullPath).then(
+        return this.loadArtifactContent(sourceArtifacts, artifactPath).then(
           content => ({ artifactPath, content, success: true as const }),
           error => ({ artifactPath, error, success: false as const }),
         )
@@ -130,10 +131,11 @@ export class ArtifactMerger {
   }
 
   private async loadArtifactContent(
-    filePath: string,
+    artifacts: ArtifactClient,
+    artifactPath: string,
   ): Promise<unknown> {
     try {
-      const content = await readFile(filePath, 'utf8')
+      const content = (await artifacts.consume(artifactPath)).toString('utf8')
       // Try to parse as JSON, fallback to string
       try {
         return JSON.parse(content)
@@ -142,7 +144,7 @@ export class ArtifactMerger {
       }
     } catch (error) {
       throw new Error(
-        `Failed to read artifact file ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to read artifact '${artifactPath}': ${error instanceof Error ? error.message : String(error)}`,
       )
     }
   }
@@ -270,17 +272,8 @@ export class ArtifactMerger {
         ? content
         : JSON.stringify(content, null, 2)
 
-    // Use ArtifactClient to save
-    // Note: ArtifactClient might not have a direct save method,
-    // so we might need to use the underlying filesystem
-    // For now, we'll use a workaround by getting the root path
-    const artifactRoot = (artifacts as any).root ?? this.options.artifactsRoot
-    const fullPath = join(artifactRoot, path)
-
-    await mkdir(dirname(fullPath), { recursive: true })
-    await writeFile(fullPath, contentString, 'utf8')
+    await artifacts.produce(path, contentString)
 
     this.options.logger.debug('Saved merged artifact', { path })
   }
 }
-

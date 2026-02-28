@@ -102,6 +102,7 @@ export class WorkflowRegistry {
         version: '1.0.0',
         description: parsed.description,
         on: parsed.on || { manual: true }, // Default to manual trigger if not specified
+        isolation: parsed.isolation,
         jobs: parsed.jobs,
         env: parsed.env,
         secrets: parsed.secrets,

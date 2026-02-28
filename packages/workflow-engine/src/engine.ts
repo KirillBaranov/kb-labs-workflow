@@ -25,6 +25,17 @@ import { WorkflowLoader } from './workflow-loader'
 import type { CreateRunInput, EngineLogger, RunContext } from './types'
 import { RunSnapshotStorage, type RunSnapshot } from './run-snapshot'
 
+interface SnapshotManagerClient {
+  restoreSnapshot(request: {
+    snapshotId: string
+    workspaceId?: string
+    environmentId?: string
+    targetPath?: string
+    overwrite?: boolean
+    metadata?: Record<string, unknown>
+  }): Promise<unknown>
+}
+
 export interface WorkflowEngineOptions {
   scheduler?: SchedulerOptions
   concurrency?: AcquireOptions
@@ -40,6 +51,8 @@ export interface WorkflowEngineOptions {
   analytics?: IAnalytics
   /** Platform execution backend (OPTIONAL - for plugin step execution) */
   executionBackend?: ExecutionBackend
+  /** Platform snapshot manager (OPTIONAL - for infra snapshot restore in replay) */
+  snapshotManager?: SnapshotManagerClient
   /** Workspace root (monorepo root) - used for plugin execution context */
   workspaceRoot?: string
 }
@@ -625,6 +638,7 @@ export class WorkflowEngine {
     runId: string,
     stepOutputs: Record<string, Record<string, unknown>>,
     env: Record<string, string>,
+    refs?: RunSnapshot['refs'],
   ): Promise<RunSnapshot | null> {
     const run = await this.getRun(runId)
     if (!run) {
@@ -632,7 +646,7 @@ export class WorkflowEngine {
       return null
     }
 
-    return this.snapshotStorage.createSnapshot(run, stepOutputs, env)
+    return this.snapshotStorage.createSnapshot(run, stepOutputs, env, refs)
   }
 
   /**
@@ -659,6 +673,26 @@ export class WorkflowEngine {
     if (!snapshot) {
       this.logger.warn('Cannot replay: snapshot not found', { runId })
       return null
+    }
+
+    if (snapshot.refs?.workspaceSnapshotId || snapshot.refs?.environmentSnapshotId) {
+      if (!this.options.snapshotManager) {
+        throw new Error('SnapshotManager is required for replay with infra snapshot references')
+      }
+
+      if (snapshot.refs.workspaceSnapshotId) {
+        await this.options.snapshotManager.restoreSnapshot({
+          snapshotId: snapshot.refs.workspaceSnapshotId,
+          metadata: { source: 'workflow.replay', runId },
+        })
+      }
+
+      if (snapshot.refs.environmentSnapshotId) {
+        await this.options.snapshotManager.restoreSnapshot({
+          snapshotId: snapshot.refs.environmentSnapshotId,
+          metadata: { source: 'workflow.replay', runId },
+        })
+      }
     }
 
     // Restore run state
@@ -868,7 +902,6 @@ function computeDurationMs(
   }
   return Math.max(0, end - start)
 }
-
 
 
 

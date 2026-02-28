@@ -7,6 +7,10 @@ export interface RunSnapshot {
   run: WorkflowRun
   stepOutputs: Record<string, Record<string, unknown>>
   env: Record<string, string>
+  refs?: {
+    workspaceSnapshotId?: string
+    environmentSnapshotId?: string
+  }
   createdAt: string
   version: string
 }
@@ -27,12 +31,14 @@ export class RunSnapshotStorage {
     run: WorkflowRun,
     stepOutputs: Record<string, Record<string, unknown>>,
     env: Record<string, string>,
+    refs?: RunSnapshot['refs'],
   ): Promise<RunSnapshot> {
     const snapshot: RunSnapshot = {
       runId: run.id,
       run,
       stepOutputs,
       env,
+      refs,
       createdAt: new Date().toISOString(),
       version: SNAPSHOT_VERSION,
     }
@@ -82,4 +88,3 @@ export class RunSnapshotStorage {
     this.logger.debug('Snapshot deleted', { runId })
   }
 }
-

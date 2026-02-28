@@ -331,6 +331,7 @@ export class WorkflowRepository {
         version: parsed.version || '1.0.0',
         description: parsed.description,
         on: parsed.on || { manual: true },
+        isolation: parsed.isolation,
         jobs: parsed.jobs,
         env: parsed.env,
         secrets: parsed.secrets,

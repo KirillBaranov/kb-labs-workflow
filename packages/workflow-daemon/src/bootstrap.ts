@@ -13,7 +13,6 @@ import { CronScheduler } from './cron-scheduler.js';
 import { CronDiscovery } from './cron-discovery.js';
 import { createServer } from './server.js';
 import { createCliAPI } from '@kb-labs/cli-api';
-// @ts-expect-error - core-sys missing type declarations
 import { findRepoRoot } from '@kb-labs/core-sys';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
@@ -40,18 +39,46 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   // Initialize platform adapters from kb.config.json
   await initializePlatform(repoRoot);
 
-  // Validate ExecutionBackend is available BEFORE creating any resources
+  // Validate required adapters are available BEFORE creating any resources.
+  // Use stderr since platform.logger might not be configured yet.
   if (!platform.executionBackend) {
-    // Use stderr since platform.logger might not be configured
-    process.stderr.write('[workflow-daemon] FATAL: ExecutionBackend not available\n');
+    process.stderr.write('[workflow-daemon] FATAL: ExecutionBackend not configured.\n');
+    process.stderr.write('[workflow-daemon] Set platform.adapters.executionBackend in kb.config.json.\n');
     throw new Error('ExecutionBackend is required for workflow daemon. Check platform configuration.');
   }
 
+  if (!platform.isConfigured('workspace')) {
+    // Not fatal — workflows with explicit isolation: relaxed will still work.
+    // But balanced (default) and strict isolation will fail at job execution time.
+    process.stderr.write(
+      '[workflow-daemon] WARNING: workspace adapter is not configured.\n' +
+      '[workflow-daemon] Workflows that use isolation: balanced (default) or isolation: strict will fail.\n' +
+      '[workflow-daemon] To fix: set platform.adapters.workspace in kb.config.json.\n' +
+      '[workflow-daemon] To run without a workspace: add "isolation: relaxed" to your workflow YAML.\n',
+    );
+  }
+
+  if (!platform.isConfigured('environment') && platform.isConfigured('workspace')) {
+    process.stderr.write(
+      '[workflow-daemon] WARNING: environment adapter is not configured.\n' +
+      '[workflow-daemon] Workflows that use isolation: strict will fail.\n' +
+      '[workflow-daemon] To fix: set platform.adapters.environment in kb.config.json.\n',
+    );
+  }
+
   // Now we can use platform.logger (configured from kb.config.json)
+  const startupRequestId = `workflow-startup-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const startupTraceId = randomUUID();
+  const startupSpanId = randomUUID();
   const bootstrapLogger = platform.logger.child({
     layer: 'workflow',
     service: 'bootstrap',
-    traceId: randomUUID(),
+    requestId: startupRequestId,
+    reqId: startupRequestId,
+    traceId: startupTraceId,
+    spanId: startupSpanId,
+    invocationId: startupSpanId,
+    executionId: startupSpanId,
   });
 
   bootstrapLogger.info('Workflow daemon starting', { repoRoot });
@@ -113,6 +140,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
     logger: platform.logger,
     // Cast to any - IExecutionBackend doesn't have health/stats but that's okay
     executionBackend: platform.executionBackend as any,
+    snapshotManager: (platform as any).snapshotManager,
     workspaceRoot: repoRoot, // Pass monorepo root for plugin execution context
   });
 
@@ -183,6 +211,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
     cliApi,
     logger: platform.logger,
     analytics: platform.analytics,
+    platform,
     workspaceRoot: repoRoot,
     concurrency: parseInt(process.env.WORKFLOW_CONCURRENCY || '5', 10),
   });

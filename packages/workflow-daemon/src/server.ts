@@ -10,6 +10,7 @@ import type { ILogger } from '@kb-labs/core-platform';
 import type { JobBroker } from './job-broker.js';
 import type { CronScheduler } from './cron-scheduler.js';
 import type { CronDiscovery } from './cron-discovery.js';
+import { WorkflowHostService } from './host/workflow-host-service.js';
 import { registerJobsAPI } from './api/jobs-api.js';
 import { registerCronAPI } from './api/cron-api.js';
 import { registerWorkflowsAPI } from './api/workflows-api.js';
@@ -34,6 +35,13 @@ export interface CreateServerOptions {
  */
 export async function createServer(options: CreateServerOptions) {
   const { engine, jobBroker, workflowService, cronScheduler, cronDiscovery, logger } = options;
+  const hostService = new WorkflowHostService({
+    engine,
+    jobBroker,
+    workflowService,
+    cronScheduler,
+    logger,
+  });
 
   const server = Fastify({
     logger: false, // Use platform logger instead
@@ -78,22 +86,20 @@ export async function createServer(options: CreateServerOptions) {
   // Register REST API routes
   registerJobsAPI({
     server,
-    jobBroker,
-    engine,
+    hostService,
     logger,
   });
 
   registerCronAPI({
     server,
-    cronScheduler,
+    hostService,
     logger,
   });
 
   if (workflowService) {
     registerWorkflowsAPI({
       server,
-      workflowService,
-      engine,
+      hostService,
       logger,
     });
   }
@@ -135,12 +141,12 @@ export async function createServer(options: CreateServerOptions) {
 
   // Health check
   server.get('/health', async () => {
-    return { ok: true, service: 'workflow-daemon' };
+    return hostService.getHealth();
   });
 
   // Metrics
   server.get('/metrics', async () => {
-    const metrics = await engine.getMetrics();
+    const metrics = await hostService.getMetrics();
     return {
       ok: true,
       data: metrics,
@@ -153,64 +159,28 @@ export async function createServer(options: CreateServerOptions) {
   // Job status (legacy)
   server.get<{ Params: { id: string } }>('/jobs/:id/status', async (request, reply) => {
     const { id } = request.params;
-    const run = await engine.getRun(id);
-
-    if (!run) {
-      reply.code(404);
-      return { ok: false, error: 'Job not found' };
+    const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
+    try {
+      const status = await hostService.getJob(tenantId, id);
+      return { ok: true, data: status };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to get job status';
+      reply.code(message === 'Job not found' ? 404 : 500);
+      return { ok: false, error: message };
     }
-
-    // Collect steps info for better visibility
-    const steps = run.jobs?.flatMap(job =>
-      job.steps?.map(step => ({
-        id: step.id,
-        name: step.name,
-        status: step.status,
-        handler: step.spec?.uses,
-        startedAt: step.startedAt,
-        finishedAt: step.finishedAt,
-        outputs: step.outputs,
-        error: step.error?.message,
-      })) ?? []
-    ) ?? [];
-
-    return {
-      ok: true,
-      data: {
-        id: run.id,
-        name: run.name,
-        status: run.status,
-        startedAt: run.startedAt,
-        finishedAt: run.finishedAt,
-        steps,
-      },
-    };
   });
 
   // Job logs (placeholder - uses platform.logger filtering)
   server.get<{ Params: { id: string } }>('/jobs/:id/logs', async (request, reply) => {
     const { id } = request.params;
-    const run = await engine.getRun(id);
-
-    if (!run) {
-      reply.code(404);
-      return { ok: false, error: 'Job not found' };
+    try {
+      const logs = await hostService.getJobLogs(id);
+      return { ok: true, data: { logs } };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to get logs';
+      reply.code(message === 'Job not found' ? 404 : 500);
+      return { ok: false, error: message };
     }
-
-    // TODO: Query platform.logger with filter { runId: id }
-    // For now, return placeholder
-    return {
-      ok: true,
-      data: {
-        logs: [
-          {
-            level: 'info',
-            message: 'Logs filtered by platform.logger (not yet implemented)',
-            runId: id,
-          },
-        ],
-      },
-    };
   });
 
   // Submit job (legacy - use POST /api/jobs instead)
@@ -224,17 +194,17 @@ export async function createServer(options: CreateServerOptions) {
         return { ok: false, error: 'Missing handler field' };
       }
 
-      const run = await jobBroker.submit({
-        handler,
-        input,
-        priority: mapPriority(priority ?? 5),
+      const submission = await hostService.submitJob('default', {
+        type: handler,
+        payload: input,
+        priority,
       });
 
       return {
         ok: true,
         data: {
-          id: run.id,
-          status: run.status,
+          id: submission.jobId,
+          status: 'pending',
         },
       };
     }
@@ -242,7 +212,7 @@ export async function createServer(options: CreateServerOptions) {
 
   // List active executions
   server.get('/executions', async () => {
-    const executions = await engine.getActiveExecutions();
+    const executions = await hostService.listActiveExecutions();
     return {
       ok: true,
       data: { executions },
@@ -258,24 +228,10 @@ export async function createServer(options: CreateServerOptions) {
       };
     }
 
-    const cronJobs = cronScheduler.getRegisteredJobs();
+    const data = hostService.listLegacyCronJobs();
     return {
       ok: true,
-      data: {
-        cronJobs: cronJobs.map(job => ({
-          id: job.id,
-          source: job.source,
-          schedule: job.schedule,
-          timezone: job.timezone,
-          priority: job.priority,
-          enabled: job.enabled,
-          handler: job.handler,
-          workflowName: job.workflowSpec?.name,
-          metadata: job.metadata,
-        })),
-        total: cronJobs.length,
-        running: cronScheduler.isSchedulerRunning(),
-      },
+      data,
     };
   });
 
@@ -326,10 +282,4 @@ export async function createServer(options: CreateServerOptions) {
   });
 
   return server;
-}
-
-function mapPriority(priority: number): 'low' | 'normal' | 'high' {
-  if (priority <= 3) {return 'low';}
-  if (priority <= 7) {return 'normal';}
-  return 'high';
 }
