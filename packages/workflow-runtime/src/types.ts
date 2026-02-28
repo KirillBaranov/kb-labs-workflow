@@ -1,7 +1,10 @@
 import type { StepSpec } from '@kb-labs/workflow-contracts'
 import type { ArtifactClient } from '@kb-labs/workflow-artifacts'
 import type { StepState } from '@kb-labs/workflow-constants'
-import type { PluginContextV3 as PluginContext } from '@kb-labs/plugin-contracts'
+import type {
+  PluginContextV3 as PluginContext,
+  ExecutionTarget,
+} from '@kb-labs/plugin-contracts'
 
 export type { ArtifactClient } from '@kb-labs/workflow-artifacts'
 
@@ -40,6 +43,7 @@ export interface StepExecutionRequest {
   spec: StepSpec
   context: StepContext
   workspace?: string
+  target?: ExecutionTarget
   signal?: AbortSignal
 }
 
@@ -63,5 +67,3 @@ export type StepExecutionResult = StepExecutionSuccess | StepExecutionFailure
 export interface Runner {
   execute(request: StepExecutionRequest): Promise<StepExecutionResult>
 }
-
-

@@ -256,11 +256,14 @@ export class SandboxRunner implements Runner {
       pluginRoot: resolution.pluginRoot,
       handlerRef: resolution.handler,
       input: resolution.input,
-      workspace: {
-        type: 'local',
-        cwd: request.workspace ?? this.workspaceRoot, // Use monorepo root from worker
-      },
+      workspace: request.workspace
+        ? {
+            type: 'local',
+            cwd: request.workspace,
+          }
+        : undefined,
       timeoutMs: this.defaultTimeout,
+      target: request.target,
     }
   }
 

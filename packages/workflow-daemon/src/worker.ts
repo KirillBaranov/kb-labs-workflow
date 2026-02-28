@@ -6,14 +6,36 @@
 import type { WorkflowEngine } from '@kb-labs/workflow-engine';
 import type { ExecutionBackend } from '@kb-labs/plugin-execution';
 import type { CliAPI } from '@kb-labs/cli-api';
-import type { ILogger, IAnalytics } from '@kb-labs/core-platform';
+import type { ILogger, IAnalytics, IWorkspaceProvider, IEnvironmentProvider } from '@kb-labs/core-platform';
+import type { ExecutionTarget } from '@kb-labs/workflow-contracts';
+import { randomUUID } from 'node:crypto';
 import { SandboxRunner } from '@kb-labs/workflow-runtime';
+
+type IsolationProfile = 'strict' | 'balanced' | 'relaxed';
+
+/**
+ * Permanent job failure — retrying is pointless (misconfiguration, invalid input, etc.).
+ * Worker passes shouldRetry=false to engine so the job goes straight to failed/DLQ
+ * without burning through the retry budget.
+ */
+class PermanentJobError extends Error {
+  readonly permanent = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'PermanentJobError';
+  }
+}
+
+interface Platform {
+  getAdapter<T>(key: string): T | undefined;
+}
 
 export interface CreateWorkflowWorkerOptions {
   engine: WorkflowEngine;
   executionBackend: ExecutionBackend;
   cliApi: CliAPI;
   logger: ILogger;
+  platform: Platform;
   workspaceRoot: string;
   concurrency?: number;
   /** Default timeout for step execution (ms). Default: 120000 (2 minutes) */
@@ -39,6 +61,7 @@ export async function createWorkflowWorker(
     executionBackend,
     cliApi,
     logger,
+    platform,
     workspaceRoot,
     concurrency = 5,
     defaultTimeout = 120000,
@@ -58,6 +81,188 @@ export async function createWorkflowWorker(
     workspaceRoot,
     defaultTimeout,
   });
+
+  function resolveIsolationProfile(job: Record<string, unknown>, run: Record<string, unknown>): IsolationProfile {
+    const jobIsolation = job.isolation;
+    if (jobIsolation === 'strict' || jobIsolation === 'balanced' || jobIsolation === 'relaxed') {
+      return jobIsolation;
+    }
+    const runIsolation = (run.metadata as Record<string, unknown> | undefined)?.isolation;
+    if (runIsolation === 'strict' || runIsolation === 'balanced' || runIsolation === 'relaxed') {
+      return runIsolation;
+    }
+    return 'balanced';
+  }
+
+  async function resolveExecutionTarget(
+    run: Record<string, unknown>,
+    job: Record<string, unknown>,
+  ): Promise<{
+    target?: ExecutionTarget;
+    workspace?: string;
+    createdEnvironmentId?: string;
+    createdWorkspaceId?: string;
+  }> {
+    const isolation = resolveIsolationProfile(job, run);
+    const runTarget = (run.metadata as Record<string, unknown> | undefined)?.target;
+    const baseTarget = (job.target ?? runTarget ?? {}) as ExecutionTarget;
+    const namespace = baseTarget.namespace ?? `workflow/${String(run.id)}`;
+
+    if (isolation === 'relaxed') {
+      return {
+        target: {
+          ...baseTarget,
+          namespace,
+        },
+        workspace: baseTarget.workdir ?? workspaceRoot,
+      };
+    }
+
+    const workspaceProvider = platform.getAdapter<IWorkspaceProvider>('workspace');
+    if (!workspaceProvider) {
+      throw new PermanentJobError(
+        `Workflow requires isolation='${isolation}' but the workspace adapter is not configured. ` +
+        `Either set platform.adapters.workspace in kb.config.json, ` +
+        `or explicitly set isolation: relaxed in the workflow YAML to run without a dedicated workspace.`
+      );
+    }
+
+    let createdEnvironmentId: string | undefined;
+    let createdWorkspaceId: string | undefined;
+    let environmentId = baseTarget.environmentId;
+    let workspaceId = baseTarget.workspaceId;
+
+    // Materialize workspace first — for strict isolation we need rootPath to mount into the container.
+    let workspaceRootPath: string | undefined;
+    if (!workspaceId) {
+      const workspace = await workspaceProvider.materialize({
+        tenantId: typeof run.tenantId === 'string' ? run.tenantId : undefined,
+        namespace,
+        sourceRef: workspaceRoot,
+        basePath: workspaceRoot,
+        metadata: {
+          source: 'workflow',
+          runId: run.id,
+          jobId: job.id,
+        },
+      });
+      workspaceId = workspace.workspaceId;
+      createdWorkspaceId = workspace.workspaceId;
+      workspaceRootPath = workspace.rootPath;
+      logger.debug('Workspace materialized for workflow job', {
+        runId: run.id,
+        jobId: job.id,
+        workspaceId,
+        rootPath: workspaceRootPath,
+      });
+    }
+
+    if (isolation === 'strict') {
+      const environmentProvider = platform.getAdapter<IEnvironmentProvider>('environment');
+      if (!environmentProvider) {
+        throw new PermanentJobError(
+          `Workflow requires isolation='strict' but the environment adapter is not configured. ` +
+          `Set platform.adapters.environment in kb.config.json, or use isolation: balanced instead.`
+        );
+      }
+      if (!environmentId) {
+        const provisioningRunId = `${String(run.id)}:${String(job.id)}:${job.attempt ?? 0}:${randomUUID().slice(0, 8)}`;
+        const environment = await environmentProvider.create({
+          tenantId: typeof run.tenantId === 'string' ? run.tenantId : undefined,
+          namespace,
+          runId: provisioningRunId,
+          // Pass workspace rootPath so the container gets the volume mounted at create time.
+          workspacePath: workspaceRootPath,
+          metadata: {
+            source: 'workflow',
+            runId: run.id,
+            jobId: job.id,
+            attempt: job.attempt ?? 0,
+            provisioningRunId,
+          },
+        });
+        environmentId = environment.environmentId;
+        createdEnvironmentId = environment.environmentId;
+        logger.debug('Environment provisioned for workflow job', {
+          runId: run.id,
+          jobId: job.id,
+          attempt: job.attempt ?? 0,
+          environmentId,
+          workspacePath: workspaceRootPath,
+        });
+      }
+
+      if (workspaceId && environmentId) {
+        await workspaceProvider.attach({
+          workspaceId,
+          environmentId,
+        });
+        logger.debug('Workspace attached to environment for workflow job', {
+          runId: run.id,
+          jobId: job.id,
+          workspaceId,
+          environmentId,
+        });
+      }
+    }
+
+    return {
+      target: {
+        ...baseTarget,
+        namespace,
+        environmentId,
+        workspaceId,
+      },
+      workspace: baseTarget.workdir,
+      createdEnvironmentId,
+      createdWorkspaceId,
+    };
+  }
+
+  async function cleanupExecutionTarget(resources: {
+    target?: ExecutionTarget;
+    createdEnvironmentId?: string;
+    createdWorkspaceId?: string;
+  }): Promise<void> {
+    const { target, createdEnvironmentId, createdWorkspaceId } = resources;
+
+    const workspaceId = createdWorkspaceId ?? (target?.workspaceId && target.environmentId ? target.workspaceId : undefined);
+    if (workspaceId) {
+      const workspaceProvider = platform.getAdapter<IWorkspaceProvider>('workspace');
+      if (workspaceProvider) {
+        try {
+          await workspaceProvider.release(workspaceId, target?.environmentId);
+          logger.debug('Workspace released for workflow job', {
+            workspaceId,
+            environmentId: target?.environmentId,
+          });
+        } catch (error) {
+          logger.warn('Failed to release workspace', {
+            workspaceId,
+            environmentId: target?.environmentId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+
+    if (createdEnvironmentId) {
+      const environmentProvider = platform.getAdapter<IEnvironmentProvider>('environment');
+      if (environmentProvider) {
+        try {
+          await environmentProvider.destroy(createdEnvironmentId, 'workflow.job.completed');
+          logger.debug('Environment destroyed for workflow job', {
+            environmentId: createdEnvironmentId,
+          });
+        } catch (error) {
+          logger.warn('Failed to destroy environment', {
+            environmentId: createdEnvironmentId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+  }
 
   /**
    * Process a single job from the queue.
@@ -118,7 +323,19 @@ export async function createWorkflowWorker(
 
     // Create job execution promise for graceful shutdown tracking
     const jobPromise = (async () => {
+      let executionTargetResources: {
+        target?: ExecutionTarget;
+        workspace?: string;
+        createdEnvironmentId?: string;
+        createdWorkspaceId?: string;
+      } | null = null;
+
       try {
+        executionTargetResources = await resolveExecutionTarget(
+          run as unknown as Record<string, unknown>,
+          job as unknown as Record<string, unknown>,
+        );
+
         // Execute job steps using SandboxRunner
         // IMPORTANT: Steps MUST run sequentially because:
         // - Step outputs are inputs for next steps
@@ -169,7 +386,8 @@ export async function createWorkflowWorker(
                 parentSpanId: job.id,
               },
             },
-            workspace: workspaceRoot,
+            workspace: executionTargetResources.workspace,
+            target: executionTargetResources.target,
           });
 
           if (result.status === 'failed') {
@@ -218,10 +436,19 @@ export async function createWorkflowWorker(
         const err = error instanceof Error ? error : new Error(String(error));
         const jobDuration = Date.now() - jobStartTime;
 
-        // Mark job as failed (engine will retry based on retries policy: max 3 attempts by default)
-        // shouldRetry=true means "attempt retry if policy allows"
-        // Engine checks attempt < retryPolicy.max to prevent infinite loops
-        await engine.markJobFailed(run.id, job.id, err, true);
+        // Permanent errors (misconfiguration, invalid spec) must not be retried —
+        // the outcome will be identical on every attempt. Go straight to failed.
+        const shouldRetry = !(error instanceof PermanentJobError);
+
+        if (!shouldRetry) {
+          jobLogger.error('Job failed permanently (no retry)', err, {
+            runId: run.id,
+            jobId: job.id,
+            errorType: err.name,
+          });
+        }
+
+        await engine.markJobFailed(run.id, job.id, err, shouldRetry);
 
         // Track job processing failed
         analytics?.track('workflow.worker.job.failed', {
@@ -229,9 +456,13 @@ export async function createWorkflowWorker(
           jobId: job.id,
           jobName: job.jobName,
           errorMessage: err.message,
+          permanent: !shouldRetry,
           durationMs: jobDuration,
         }).catch(() => {});
       } finally {
+        if (executionTargetResources) {
+          await cleanupExecutionTarget(executionTargetResources);
+        }
         // Remove from tracking
         runningJobs.delete(jobKey);
       }
