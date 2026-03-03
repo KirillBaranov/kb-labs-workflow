@@ -15,7 +15,7 @@ import type {
   IEventBus,
 } from '@kb-labs/core-platform';
 import type { JobHandlerDecl, PluginContextDescriptor } from '@kb-labs/plugin-contracts';
-import type { IExecutionBackend, ExecutionRequest } from '@kb-labs/core-platform';
+import type { IExecutionBackend, ExecutionRequest } from '@kb-labs/core-contracts';
 import { nanoid } from 'nanoid';
 
 /**
@@ -64,7 +64,7 @@ interface JobQueueEntry {
 
 export interface JobManagerConfig {
   /** Execution backend for sandboxed handler execution */
-  executionBackend?: IExecutionBackend;
+  executionBackend?: IExecutionBackend<PluginContextDescriptor>;
   /** Default job timeout in ms (default: 300000 = 5 min) */
   defaultTimeout?: number;
   /** Default max retries (default: 3) */
@@ -385,7 +385,7 @@ export class JobManager implements IJobScheduler {
         executionId,
       });
 
-      const request: ExecutionRequest = {
+      const request: ExecutionRequest<PluginContextDescriptor> = {
         executionId,
         descriptor,
         pluginRoot: handlerEntry.pluginRoot,
