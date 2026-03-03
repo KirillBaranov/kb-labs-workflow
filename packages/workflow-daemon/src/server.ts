@@ -48,6 +48,40 @@ export async function createServer(options: CreateServerOptions) {
     bodyLimit: 1048576, // 1MB body limit (prevents parsing huge payloads)
   });
 
+  const isProduction = process.env.NODE_ENV === 'production';
+  const requireAuth = process.env.KB_DAEMON_REQUIRE_AUTH === 'true' || isProduction;
+  const daemonApiKey = process.env.KB_DAEMON_API_KEY;
+  const enableLegacyEndpoints = process.env.KB_DAEMON_ENABLE_LEGACY_ENDPOINTS === 'true';
+
+  if (requireAuth && !daemonApiKey) {
+    throw new Error(
+      'KB_DAEMON_API_KEY is required when daemon auth is enabled (KB_DAEMON_REQUIRE_AUTH=true or NODE_ENV=production)'
+    );
+  }
+
+  server.addHook('onRequest', async (request, reply) => {
+    if (!requireAuth) {
+      return;
+    }
+
+    if (request.url === '/health') {
+      return;
+    }
+
+    const apiKeyHeader = request.headers['x-api-key'];
+    const authHeader = request.headers.authorization;
+    const bearerToken =
+      typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+        ? authHeader.slice('Bearer '.length).trim()
+        : undefined;
+
+    const token = (typeof apiKeyHeader === 'string' ? apiKeyHeader : undefined) ?? bearerToken;
+
+    if (!token || token !== daemonApiKey) {
+      reply.code(401).send({ ok: false, error: 'Unauthorized' });
+    }
+  });
+
   // Enable CORS with restricted origins
   const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
     'http://localhost:3000',
@@ -153,8 +187,14 @@ export async function createServer(options: CreateServerOptions) {
     };
   });
 
-  // Legacy endpoints (kept for backward compatibility)
-  // TODO: Deprecate these in favor of /api/* endpoints
+  // Legacy endpoints are disabled by default.
+  // Re-enable only when explicitly requested via KB_DAEMON_ENABLE_LEGACY_ENDPOINTS=true.
+  if (!enableLegacyEndpoints) {
+    logger.info('Legacy daemon endpoints are disabled');
+    return server;
+  }
+
+  logger.warn('Legacy daemon endpoints are enabled; use /api/* routes for production clients');
 
   // Job status (legacy)
   server.get<{ Params: { id: string } }>('/jobs/:id/status', async (request, reply) => {
