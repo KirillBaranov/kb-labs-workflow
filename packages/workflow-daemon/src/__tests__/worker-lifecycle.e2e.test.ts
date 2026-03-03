@@ -122,26 +122,29 @@ describe('workflow worker lifecycle e2e', () => {
       const completion = createDeferred<void>();
 
       const environmentManager = {
-        async createEnvironment(request: any) {
+        async create(request: any) {
           const descriptor = await platform.environmentManager.createEnvironment(request);
           createdEnvironmentIds.push(descriptor.environmentId);
           return { environmentId: descriptor.environmentId };
         },
-        async destroyEnvironment(environmentId: string, reason?: string) {
+        async destroy(environmentId: string, reason?: string) {
           destroyedEnvironmentIds.push(environmentId);
           await platform.environmentManager.destroyEnvironment(environmentId, reason);
         },
       };
 
       const workspaceManager = {
-        async materializeWorkspace(request: any) {
+        async materialize(request: any) {
           const descriptor = await platform.workspaceManager.materializeWorkspace(request);
-          return { workspaceId: descriptor.workspaceId };
+          return {
+            workspaceId: descriptor.workspaceId,
+            rootPath: descriptor.rootPath,
+          };
         },
-        async attachWorkspace(request: { workspaceId: string; environmentId: string }) {
+        async attach(request: { workspaceId: string; environmentId: string }) {
           return platform.workspaceManager.attachWorkspace(request);
         },
-        async releaseWorkspace(workspaceId: string, environmentId?: string) {
+        async release(workspaceId: string, environmentId?: string) {
           releasedWorkspaceIds.push(workspaceId);
           await platform.workspaceManager.releaseWorkspace(workspaceId, environmentId);
         },
@@ -181,8 +184,17 @@ describe('workflow worker lifecycle e2e', () => {
         cliApi: {} as any,
         logger: platform.logger,
         workspaceRoot,
-        environmentManager: environmentManager as any,
-        workspaceManager: workspaceManager as any,
+        platform: {
+          getAdapter<T>(key: string): T | undefined {
+            if (key === 'environment') {
+              return environmentManager as T;
+            }
+            if (key === 'workspace') {
+              return workspaceManager as T;
+            }
+            return undefined;
+          },
+        },
         concurrency: 1,
       });
 
