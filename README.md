@@ -1,173 +1,306 @@
-# KB Labs Workflow (@kb-labs/workflow)
+# Standard Configuration Templates
 
-> **Workflow orchestration engine for KB Labs ecosystem.** Provides workflow execution, job scheduling, and step orchestration capabilities.
+This directory contains canonical configuration templates for all `@kb-labs` packages.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-18.18.0+-green.svg)](https://nodejs.org/)
-[![pnpm](https://img.shields.io/badge/pnpm-9.0.0+-orange.svg)](https://pnpm.io/)
+## 📋 Available Templates
 
-## 🎯 Vision
+### Core Configs (All Packages)
 
-KB Labs Workflow is a workflow orchestration engine that enables declarative workflow definitions, job scheduling, step execution, and distributed coordination through Redis. It provides a unified interface for running multi-step workflows across the KB Labs ecosystem.
+| File | Purpose | Required | Customizable |
+|------|---------|----------|--------------|
+| **eslint.config.js** | Linting rules | ✅ Yes | ⚠️ Minimal |
+| **tsconfig.json** | TypeScript IDE config | ✅ Yes | ❌ No |
+| **tsconfig.build.json** | TypeScript build config | ✅ Yes | ❌ No |
 
-The project solves the problem of orchestrating complex multi-step operations (like CI/CD pipelines, data processing, and plugin workflows) by providing a reliable, scalable workflow engine with support for dependencies, retries, concurrency control, and observability.
+### Tsup Configs (Choose ONE based on package type)
 
-This project is part of the **@kb-labs** ecosystem and integrates seamlessly with CLI, REST API, Studio, and all plugin systems.
+| Template | Package Type | Use Cases |
+|----------|--------------|-----------|
+| **tsup.config.ts** | 📦 **Library** (default) | Most packages, importable libraries |
+| **tsup.config.bin.ts** | 🔧 **Binary** | Standalone executables, CLI bins |
+| **tsup.config.cli.ts** | ⌨️ **CLI** | CLI packages with commands |
+| **tsup.config.dual.ts** | 📦🔧 **Library + Binary** | Packages with both API and bin |
 
-## 🚀 Quick Start
+### Package.json Examples
 
-### Installation
+| Template | Purpose |
+|----------|---------|
+| **package.json.lib** | Library package example |
+| **package.json.bin** | Binary package example |
 
+## 🎯 Philosophy
+
+**Convention over Configuration**
+
+All `@kb-labs` packages MUST use these exact templates with minimal customization. This ensures:
+
+- ✅ Consistent build output across all packages
+- ✅ Predictable dependency resolution
+- ✅ Unified linting standards
+- ✅ Easy maintenance and upgrades
+
+## 📦 Usage
+
+### For New Packages
+
+#### Step 1: Choose Package Type
+
+**Library Package** (most common):
 ```bash
-# Install dependencies
-pnpm install
+cp kb-labs-devkit/templates/configs/tsup.config.ts your-package/
+cp kb-labs-devkit/templates/configs/eslint.config.js your-package/
+cp kb-labs-devkit/templates/configs/tsconfig*.json your-package/
+cp kb-labs-devkit/templates/configs/package.json.lib your-package/package.json
 ```
 
-### Development
-
+**Binary Package** (standalone executables):
 ```bash
-# Start development mode for all packages
-pnpm dev
-
-# Build all packages
-pnpm build
-
-# Run tests
-pnpm test
-
-# Lint code
-pnpm lint
+cp kb-labs-devkit/templates/configs/tsup.config.bin.ts your-package/tsup.config.ts
+cp kb-labs-devkit/templates/configs/eslint.config.js your-package/
+cp kb-labs-devkit/templates/configs/tsconfig*.json your-package/
+cp kb-labs-devkit/templates/configs/package.json.bin your-package/package.json
 ```
 
-### Basic Usage
+**CLI Package** (command handlers):
+```bash
+cp kb-labs-devkit/templates/configs/tsup.config.cli.ts your-package/tsup.config.ts
+cp kb-labs-devkit/templates/configs/eslint.config.js your-package/
+cp kb-labs-devkit/templates/configs/tsconfig*.json your-package/
+cp kb-labs-devkit/templates/configs/package.json.lib your-package/package.json
+```
+
+**Dual Package** (library + binary):
+```bash
+cp kb-labs-devkit/templates/configs/tsup.config.dual.ts your-package/tsup.config.ts
+cp kb-labs-devkit/templates/configs/eslint.config.js your-package/
+cp kb-labs-devkit/templates/configs/tsconfig*.json your-package/
+cp kb-labs-devkit/templates/configs/package.json.lib your-package/package.json
+# Then add "bin" field to package.json
+```
+
+#### Step 2: Customize Package Name
+```bash
+# Edit package.json and update name, description
+```
+
+### For Existing Packages
+
+```bash
+# Check for drift
+npx kb-devkit-check-configs
+
+# Auto-fix drift
+npx kb-devkit-check-configs --fix
+```
+
+## 🔧 Customization Rules
+
+### tsup.config.ts
+
+**Allowed customizations:**
 
 ```typescript
-import { WorkflowEngine, createRedisClient } from '@kb-labs/workflow-engine'
-import type { WorkflowSpec } from '@kb-labs/workflow-contracts'
+export default defineConfig({
+  ...nodePreset,
+  tsconfig: 'tsconfig.build.json', // ✅ Always required
 
-const redis = await createRedisClient({
-  url: process.env.KB_REDIS_URL || 'redis://localhost:6379'
-})
+  // ✅ OK: Multiple entry points
+  entry: ['src/index.ts', 'src/cli.ts'],
 
-const engine = new WorkflowEngine({
-  redis,
-  logger: getLogger('workflow')
-})
+  // ✅ OK: Extra external deps (if really needed)
+  external: ['special-native-module'],
 
-const spec: WorkflowSpec = {
-  name: 'my-workflow',
-  version: '0.1.0',
-  jobs: {
-    build: {
-      steps: [
-        { name: 'build', uses: 'plugin:@kb-labs/build/cli' }
-      ]
-    }
+  dts: true, // ✅ Always required
+});
+```
+
+**NOT allowed:**
+
+```typescript
+// ❌ WRONG: Don't override preset settings
+export default defineConfig({
+  format: ['esm'],        // Already in preset!
+  target: 'es2022',       // Already in preset!
+  sourcemap: true,        // Already in preset!
+  // ...
+});
+
+// ❌ WRONG: Don't disable types
+dts: false,
+
+// ❌ WRONG: Don't duplicate external deps
+external: [
+  '@kb-labs/core',  // Already in preset!
+  '@kb-labs/cli',   // Already in preset!
+],
+```
+
+### eslint.config.js
+
+**Allowed customizations:**
+
+```javascript
+export default [
+  ...nodePreset,
+  {
+    // ✅ OK: Project-specific ignores only
+    ignores: ['**/*.generated.ts']
   }
+];
+```
+
+**NOT allowed:**
+
+```javascript
+// ❌ WRONG: Don't duplicate preset ignores
+export default [
+  ...nodePreset,
+  {
+    ignores: [
+      '**/dist/**',        // Already in preset!
+      '**/node_modules/**', // Already in preset!
+    ]
+  }
+];
+```
+
+### tsconfig.json & tsconfig.build.json
+
+**NOT customizable!**
+
+These files MUST remain identical to templates. All TypeScript configuration is standardized in DevKit presets.
+
+```json
+// ❌ WRONG: Don't override extends
+{
+  "extends": "./my-custom-base.json"
 }
 
-const run = await engine.run(spec, {
-  idempotency: 'build-123'
-})
+// ❌ WRONG: Don't add compilerOptions
+{
+  "extends": "@kb-labs/devkit/tsconfig/node.json",
+  "compilerOptions": {
+    "strict": false  // Don't override preset!
+  }
+}
 ```
 
-## ✨ Features
+## 🔍 Drift Detection
 
-- **Declarative Workflows**: YAML/JSON workflow definitions with jobs, steps, and dependencies
-- **Job Scheduling**: Intelligent job scheduling with dependency resolution and concurrency control
-- **Step Execution**: Support for in-process and sandboxed plugin command execution
-- **Redis Coordination**: Distributed coordination through Redis for multi-worker setups
-- **Retry Logic**: Configurable retry policies for jobs and steps
-- **Observability**: Event streaming, logging, and metrics integration
-- **Type Safety**: Full TypeScript support with Zod schema validation
+DevKit automatically detects configuration drift:
 
-## 📁 Repository Structure
+```bash
+# Check all packages
+npx kb-devkit-check-configs
 
-```
-kb-labs-workflow/
-├── apps/                    # Example applications and demos
-│   └── demo/                # Example app demonstrating workflow functionality
-├── packages/                # Workflow packages
-│   ├── workflow-artifacts/   # Artifact helpers and file system clients
-│   ├── workflow-constants/   # Shared constants and enums
-│   ├── workflow-contracts/  # Type definitions and Zod schemas
-│   ├── workflow-engine/     # Core orchestration engine
-│   └── workflow-runtime/    # Step execution runtime adapters
-├── docs/                    # Documentation
-│   └── adr/                 # Architecture Decision Records
-└── scripts/                 # Utility scripts
+# Check specific package
+npx kb-devkit-check-configs --package=@kb-labs/core
+
+# Auto-fix (creates backup)
+npx kb-devkit-check-configs --fix
+
+# CI mode (fail on drift)
+npx kb-devkit-check-configs --ci
 ```
 
-## 📦 Packages
+### Drift Detection Rules
 
-| Package | Description |
-|---------|-------------|
-| [@kb-labs/workflow-artifacts](./packages/workflow-artifacts/) | Artifact helpers for file system operations and artifact management |
-| [@kb-labs/workflow-constants](./packages/workflow-constants/) | Shared constants, enums, and state definitions |
-| [@kb-labs/workflow-contracts](./packages/workflow-contracts/) | Type definitions, Zod schemas, and workflow specification contracts |
-| [@kb-labs/workflow-engine](./packages/workflow-engine/) | Core orchestration engine with Redis coordination, job scheduling, and state management |
-| [@kb-labs/workflow-runtime](./packages/workflow-runtime/) | Runtime adapters for step execution (local and sandboxed runners) |
+| Issue | Severity | Auto-fix |
+|-------|----------|----------|
+| Missing `dts: true` | 🔴 Error | ✅ Yes |
+| Using `dts: false` | 🔴 Error | ✅ Yes |
+| Not using `nodePreset` | 🔴 Error | ⚠️ Manual |
+| Duplicate `external` | 🟡 Warning | ✅ Yes |
+| Duplicate `ignores` | 🟡 Warning | ✅ Yes |
+| Missing templates | 🔴 Error | ✅ Yes |
+| Modified templates | 🔴 Error | ⚠️ Manual |
 
-### Package Details
+## 📚 Examples
 
-**@kb-labs/workflow-engine** is the core orchestration engine:
-- Job scheduling with dependency resolution
-- Redis-based state management and coordination
-- Event bus for workflow events
-- Retry logic and timeout handling
-- Concurrency control and idempotency
+### ✅ Good Example (Minimal Package)
 
-**@kb-labs/workflow-runtime** provides step execution:
-- Local runner for in-process execution
-- Sandbox runner for plugin command execution
-- Context management and environment setup
-- Signal handling and cancellation
+```typescript
+// tsup.config.ts
+import { defineConfig } from 'tsup';
+import nodePreset from '@kb-labs/devkit/tsup/node.js';
 
-**@kb-labs/workflow-contracts** defines the workflow specification:
-- Zod schemas for validation
-- TypeScript types for all workflow entities
-- Example workflow definitions
+export default defineConfig({
+  ...nodePreset,
+  tsconfig: 'tsconfig.build.json',
+  entry: ['src/index.ts'],
+  dts: true,
+});
+```
 
-## 🔗 Dependencies
+### ✅ Good Example (CLI Package with Multiple Entries)
 
-This repository depends on:
+```typescript
+// tsup.config.ts
+import { defineConfig } from 'tsup';
+import nodePreset from '@kb-labs/devkit/tsup/node.js';
 
-- **@kb-labs/core-sys** - System utilities and logging (from `kb-labs-core`)
-- **@kb-labs/cli-core** - CLI core utilities (from `kb-labs-cli`)
-- **@kb-labs/plugin-manifest** - Plugin manifest definitions (from `kb-labs-plugin`)
-- **@kb-labs/plugin-runtime** - Plugin runtime for sandboxed execution (from `kb-labs-plugin`)
+export default defineConfig({
+  ...nodePreset,
+  tsconfig: 'tsconfig.build.json',
+  entry: [
+    'src/index.ts',
+    'src/cli/index.ts',
+    'src/cli/commands/build.ts',
+    'src/cli/commands/test.ts',
+  ],
+  dts: true,
+});
+```
 
-## 📚 Documentation
+### ❌ Bad Example (Over-configured)
 
-- [Workflow Engine Guide](../../docs/workflow-engine.md) - Complete guide to using workflows across CLI, REST API, and Studio
-- [Architecture Decisions](./docs/adr/) - ADRs for this project
-  - [ADR-0009: Approval Steps](./docs/adr/0009-approval-steps.md) - Manual approval gates for workflow execution
-  - [ADR-0010: Cross-Run Artifact Merge](./docs/adr/0010-cross-run-artifact-merge.md) - Merging artifacts from multiple runs
-  - [ADR-0011: Local Replay](./docs/adr/0011-local-replay.md) - Replaying workflows from snapshots
-  - [ADR-0012: Remote Marketplace](./docs/adr/0012-remote-marketplace.md) - Discovering workflows from Git repositories
-  - [ADR-0013: Budget Control](./docs/adr/0013-budget-control.md) - Cost tracking and budget limits
-- [Contributing Guide](./CONTRIBUTING.md) - How to contribute
+```typescript
+// tsup.config.ts
+import { defineConfig } from 'tsup';
 
-## 🔧 Requirements
+// ❌ Not using preset!
+export default defineConfig({
+  format: ['esm'],
+  target: 'es2022',
+  sourcemap: true,
+  clean: true,
+  dts: true,
+  entry: ['src/index.ts'],
+  external: [/^@kb-labs\/.*/],  // Manual external
+});
+```
 
-- **Node.js**: >= 18.18.0
-- **pnpm**: >= 9.0.0
-- **Redis**: Required for distributed coordination (standalone, cluster, or sentinel)
+## 🚀 Migration Guide
 
-## 🤝 Contributing
+### From Custom Config to Standard Template
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for development guidelines and contribution process.
+1. **Backup your current config**
+   ```bash
+   cp tsup.config.ts tsup.config.ts.backup
+   ```
 
-## License
+2. **Copy standard template**
+   ```bash
+   cp kb-labs-devkit/templates/configs/tsup.config.ts .
+   ```
 
-KB Public License v1.1 - see [LICENSE](LICENSE) for details.
+3. **Migrate customizations** (only if needed)
+   - Compare your backup with template
+   - Extract only truly necessary customizations
+   - Add them with comments explaining why
 
-This is open source software with some restrictions on:
-- Offering as a hosted service (SaaS/PaaS)
-- Creating competing platform products
+4. **Test build**
+   ```bash
+   pnpm run build
+   ```
 
-For commercial licensing inquiries: contact@kblabs.dev
+5. **Verify types**
+   ```bash
+   npx kb-devkit-check-types
+   ```
 
-**User Guides:**
-- [English Guide](../LICENSE-GUIDE.en.md)
-- [Русское руководство](../LICENSE-GUIDE.ru.md)
+## 🔗 Related
+
+- [DevKit README](../../README.md)
+- [DevKit Usage Guide](../../USAGE_GUIDE.md)
+- [ADR-0009: Unified Build Convention](../../docs/adr/0009-unified-build-convention.md)
