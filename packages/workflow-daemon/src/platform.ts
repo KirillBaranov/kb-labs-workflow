@@ -13,6 +13,7 @@ import {
   type PlatformLifecyclePhase,
 } from '@kb-labs/core-runtime';
 import { findNearestConfig, readJsonWithDiagnostics } from '@kb-labs/core-config';
+import path from 'node:path';
 
 /**
  * Whether platform has been initialized.
@@ -20,6 +21,14 @@ import { findNearestConfig, readJsonWithDiagnostics } from '@kb-labs/core-config
 let _initialized = false;
 const WORKFLOW_LIFECYCLE_HOOK_ID = 'workflow-daemon';
 let _hooksRegistered = false;
+
+function resolvePlatformRootFromConfigPath(configPath: string): string {
+  const configDir = path.dirname(configPath);
+  if (path.basename(configDir) === '.kb') {
+    return path.dirname(configDir);
+  }
+  return configDir;
+}
 
 function ensureLifecycleHooksRegistered(): void {
   if (_hooksRegistered) {
@@ -87,6 +96,7 @@ export async function initializePlatform(cwd: string = process.cwd()): Promise<v
 
     // Read config
     const result = await readJsonWithDiagnostics<{ platform?: PlatformConfig }>(configPath);
+    const platformRoot = resolvePlatformRootFromConfigPath(configPath);
     if (!result.ok) {
       process.stderr.write(`[workflow-daemon] Failed to read kb.config.json, using NoOp adapters: ${result.diagnostics.map(d => d.message).join(', ')}\n`);
       await initPlatform({ adapters: {} }, cwd);
@@ -113,13 +123,14 @@ export async function initializePlatform(cwd: string = process.cwd()): Promise<v
     const adapterKeys = Object.keys(platformConfig.adapters ?? {}).join(', ');
     process.stderr.write(`[workflow-daemon] Initializing platform adapters: ${configPath} [${adapterKeys}]\n`);
 
-    await initPlatform(platformConfig, cwd);
+    await initPlatform(platformConfig, platformRoot);
     _initialized = true;
 
     // Now we can use platform.logger (initialized)
     platform.logger.info('Workflow daemon platform adapters initialized', {
       adapters: Object.keys(platformConfig.adapters ?? {}),
       hasExecutionBackend: !!platform.executionBackend,
+      platformRoot,
     });
 
   } catch (error) {
