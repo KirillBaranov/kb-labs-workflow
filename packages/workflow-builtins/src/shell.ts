@@ -75,6 +75,28 @@ export interface ShellOutput {
 }
 
 /**
+ * If stdout is valid JSON, merge its keys into the output object.
+ * This enables structured data flow between workflow steps:
+ * e.g. echo '{"passed": true}' → steps.X.outputs.passed
+ */
+function mergeJsonOutputs(output: ShellOutput): Record<string, unknown> {
+  const base: Record<string, unknown> = { ...output };
+  const trimmed = output.stdout.trim();
+  if (!trimmed) {return base;}
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      Object.assign(base, parsed);
+    }
+  } catch {
+    // Not JSON — return as-is
+  }
+
+  return base;
+}
+
+/**
  * Built-in shell execution handler.
  *
  * Executes shell commands with safety checks and timeout enforcement.
@@ -87,7 +109,7 @@ export interface ShellOutput {
 async function shellHandler(
   ctx: PluginContextV3,
   input: ShellInput,
-): Promise<ShellOutput> {
+): Promise<Record<string, unknown>> {
   const { command, env = {}, timeout = 300000, throwOnError = false } = input;
 
   // Security: Check for dangerous commands
@@ -116,15 +138,44 @@ async function shellHandler(
   });
 
   try {
-    const result = await execaCommand(command, {
+    const proc = execaCommand(command, {
       cwd,
       env: mergedEnv,
       shell: true,
       stdio: 'pipe',
       timeout,
-      // Reject on non-zero exit only if throwOnError is true
-      reject: throwOnError,
+      reject: false, // We handle exit codes ourselves
     });
+
+    // Stream stdout/stderr line-by-line in real-time
+    let lineNo = 0;
+    let stdoutBuf = '';
+    let stderrBuf = '';
+
+    const emitLine = (stream: 'stdout' | 'stderr', line: string) => {
+      lineNo++;
+      void ctx.api.events.emit('log.line', { stream, line, lineNo, level: stream === 'stderr' ? 'error' : 'info' });
+    };
+
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      stdoutBuf += chunk.toString();
+      const lines = stdoutBuf.split('\n');
+      stdoutBuf = lines.pop() ?? '';
+      for (const line of lines) emitLine('stdout', line);
+    });
+
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      stderrBuf += chunk.toString();
+      const lines = stderrBuf.split('\n');
+      stderrBuf = lines.pop() ?? '';
+      for (const line of lines) emitLine('stderr', line);
+    });
+
+    const result = await proc;
+
+    // Flush remaining buffered content
+    if (stdoutBuf) emitLine('stdout', stdoutBuf);
+    if (stderrBuf) emitLine('stderr', stderrBuf);
 
     const output: ShellOutput = {
       stdout: result.stdout,
@@ -138,35 +189,18 @@ async function shellHandler(
         exitCode: output.exitCode,
         stdoutLines: output.stdout.split('\n').length,
       });
-
-      // Log stdout as separate log entries for visibility in log queries
-      if (output.stdout.trim()) {
-        // Split into chunks to avoid huge log entries (max 2000 chars per chunk)
-        const chunks = chunkString(output.stdout, 2000);
-        chunks.forEach((chunk, index) => {
-          ctx.platform.logger.info(`Shell stdout (chunk ${index + 1}/${chunks.length})`, {
-            stdout: chunk,
-          });
-        });
-      }
     } else {
       ctx.platform.logger.warn('Shell command failed', {
         exitCode: output.exitCode,
         stderrLines: output.stderr.split('\n').length,
       });
 
-      // Log stderr as separate log entries
-      if (output.stderr.trim()) {
-        const chunks = chunkString(output.stderr, 2000);
-        chunks.forEach((chunk, index) => {
-          ctx.platform.logger.warn(`Shell stderr (chunk ${index + 1}/${chunks.length})`, {
-            stderr: chunk,
-          });
-        });
+      if (throwOnError) {
+        throw new Error(`Shell command failed with exit code ${output.exitCode}: ${output.stderr.slice(0, 500)}`);
       }
     }
 
-    return output;
+    return mergeJsonOutputs(output);
   } catch (error) {
     // Handle timeout
     if (error && typeof error === 'object' && 'timedOut' in error && error.timedOut) {
@@ -188,13 +222,11 @@ async function shellHandler(
         stderr: output.stderr.slice(0, 500),
       });
 
-      // If throwOnError was false, return the error result instead of throwing
       if (!throwOnError) {
-        return output;
+        return { ...output };
       }
     }
 
-    // Re-throw unexpected errors
     throw error;
   }
 }

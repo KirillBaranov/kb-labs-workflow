@@ -37,6 +37,7 @@ export interface StepContext {
   logger: RuntimeLogger
   trace?: RuntimeTrace
   pluginContext?: PluginContext
+  onLog?: (entry: { level: string; message: string; stream: 'stdout' | 'stderr'; lineNo: number; timestamp: string; meta?: Record<string, unknown> }) => void
 }
 
 export interface StepExecutionRequest {

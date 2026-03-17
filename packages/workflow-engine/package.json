@@ -36,11 +36,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@kb-labs/cli-api": "link:../../../kb-labs-cli/packages/cli-api",
-    "@kb-labs/core-contracts": "link:../../../kb-labs-core/packages/core-contracts",
-    "@kb-labs/core-platform": "link:../../../kb-labs-core/packages/core-platform",
-    "@kb-labs/plugin-contracts": "link:../../../kb-labs-plugin/packages/plugin-contracts",
-    "@kb-labs/plugin-execution": "link:../../../kb-labs-plugin/packages/plugin-execution",
+    "@kb-labs/cli-api": "workspace:*",
+    "@kb-labs/core-contracts": "workspace:*",
+    "@kb-labs/core-platform": "workspace:*",
+    "@kb-labs/plugin-contracts": "workspace:*",
+    "@kb-labs/plugin-execution": "workspace:*",
     "@kb-labs/workflow-artifacts": "workspace:*",
     "@kb-labs/workflow-constants": "workspace:*",
     "@kb-labs/workflow-contracts": "workspace:*",
@@ -50,7 +50,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@kb-labs/devkit": "link:../../../kb-labs-devkit",
+    "@kb-labs/devkit": "workspace:*",
     "@types/node": "^24.3.3",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",

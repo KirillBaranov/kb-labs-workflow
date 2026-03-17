@@ -14,11 +14,8 @@ import { WorkflowHostService } from './host/workflow-host-service.js';
 import { registerJobsAPI } from './api/jobs-api.js';
 import { registerCronAPI } from './api/cron-api.js';
 import { registerWorkflowsAPI } from './api/workflows-api.js';
-// TODO: These APIs use outdated schema and need to be rewritten for new WorkflowRun structure
-// import { registerStatsAPI } from './api/stats-api.js';
-// import { registerLogsAPI } from './api/logs-api.js';
-// import { registerStepsAPI } from './api/steps-api.js';
-// import { registerHistoryAPI } from './api/history-api.js';
+import { registerApprovalsAPI } from './api/approvals-api.js';
+import { registerStatsAPI } from './api/stats-api.js';
 
 export interface CreateServerOptions {
   engine: WorkflowEngine;
@@ -134,11 +131,25 @@ export async function createServer(options: CreateServerOptions) {
     registerWorkflowsAPI({
       server,
       hostService,
+      engine,
       logger,
     });
   }
 
-  // TODO: These APIs are temporarily disabled - they use outdated schema
+  // Approvals API (always enabled — needed for builtin:approval steps)
+  registerApprovalsAPI({
+    server,
+    engine,
+    logger,
+  });
+
+  // Stats API — dashboard statistics
+  registerStatsAPI({
+    server,
+    hostService,
+    cronScheduler,
+    logger,
+  });
   // and need to be rewritten for new WorkflowRun structure (name instead of workflowName,
   // jobs instead of steps, result.error instead of error, datetime strings instead of Date objects)
 

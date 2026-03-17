@@ -1,6 +1,6 @@
 const RUN_STATES = ['queued', 'running', 'success', 'failed', 'cancelled', 'skipped', 'dlq'] as const
 const JOB_STATES = ['queued', 'running', 'success', 'failed', 'cancelled', 'skipped', 'interrupted'] as const
-const STEP_STATES = RUN_STATES
+const STEP_STATES = [...RUN_STATES, 'waiting_approval'] as const
 const JOB_PRIORITIES = ['high', 'normal', 'low'] as const
 
 export { RUN_STATES, JOB_STATES, STEP_STATES, JOB_PRIORITIES }
@@ -36,6 +36,7 @@ export const EVENT_NAMES = {
     failed: 'step.failed',
     cancelled: 'step.cancelled',
     skipped: 'step.skipped',
+    waitingApproval: 'step.waitingApproval',
   },
   log: {
     appended: 'log.appended',

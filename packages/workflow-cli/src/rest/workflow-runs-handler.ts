@@ -10,10 +10,10 @@ import { getWorkflowDaemonUrl } from '../http-client.js';
 export default defineHandler({
   async execute(
     ctx: PluginContextV3,
-    input: RestInput<{ limit?: string; offset?: string; status?: string }, unknown, { workflowId: string }>
+    input: RestInput<{ limit?: string; offset?: string; status?: string }, unknown, { id: string }>
   ): Promise<WorkflowRunHistoryResponse> {
     const daemonUrl = getWorkflowDaemonUrl();
-    const { workflowId } = input.params!;
+    const { id: workflowId } = input.params!;
     const { limit, offset, status } = input.query || {};
 
     // Validate query parameters

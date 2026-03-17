@@ -1,38 +1,32 @@
 /**
  * @module @kb-labs/workflow-daemon/worker
- * WorkflowWorker implementation - processes jobs from WorkflowEngine
+ * WorkflowWorker implementation - processes jobs from WorkflowEngine.
+ *
+ * The worker orchestrates job/step execution but delegates all code execution
+ * to the execution plane (backend.execute). It knows nothing about containers,
+ * environments, or workspace provisioning — that's the platform's responsibility.
  */
 
 import type { WorkflowEngine } from '@kb-labs/workflow-engine';
-import type { ExecutionBackend } from '@kb-labs/plugin-execution';
 import type { CliAPI } from '@kb-labs/cli-api';
-import type { ILogger, IAnalytics, IWorkspaceProvider, IEnvironmentProvider } from '@kb-labs/core-platform';
-import type { ExecutionTarget } from '@kb-labs/workflow-contracts';
-import { randomUUID } from 'node:crypto';
+import type { ILogger, IAnalytics } from '@kb-labs/core-platform';
+import type { IExecutionBackend } from '@kb-labs/core-contracts';
+import type { ExecutionTarget, ExpressionContext } from '@kb-labs/workflow-contracts';
+import {
+  interpolateObject,
+  evaluateExpression,
+  resolveValue,
+} from '@kb-labs/workflow-contracts';
+import type { GateInput, GateRouteAction } from '@kb-labs/workflow-builtins';
 import { SandboxRunner } from '@kb-labs/workflow-runtime';
 
-type IsolationProfile = 'strict' | 'balanced' | 'relaxed';
-
-/**
- * Permanent job failure — retrying is pointless (misconfiguration, invalid input, etc.).
- * Worker passes shouldRetry=false to engine so the job goes straight to failed/DLQ
- * without burning through the retry budget.
- */
-class PermanentJobError extends Error {
-  readonly permanent = true;
-  constructor(message: string) {
-    super(message);
-    this.name = 'PermanentJobError';
-  }
-}
-
 interface Platform {
-  getAdapter<T>(key: string): T | undefined;
+  readonly executionBackend: IExecutionBackend;
+  readonly hasExecutionBackend: boolean;
 }
 
 export interface CreateWorkflowWorkerOptions {
   engine: WorkflowEngine;
-  executionBackend: ExecutionBackend;
   cliApi: CliAPI;
   logger: ILogger;
   platform: Platform;
@@ -52,13 +46,20 @@ export interface WorkflowWorker {
 /**
  * Create a workflow worker that processes jobs from the queue.
  * Uses SandboxRunner with ExecutionBackend for plugin execution.
+ *
+ * The worker is a pure orchestrator:
+ * - Picks jobs from queue, iterates steps sequentially
+ * - Delegates execution to backend.execute() (execution plane)
+ * - Handles results, marks status, manages retry/failure
+ *
+ * All provisioning (workspace, environment, cleanup) is handled by the
+ * execution plane transparently — the worker doesn't know or care.
  */
 export async function createWorkflowWorker(
   options: CreateWorkflowWorkerOptions
 ): Promise<WorkflowWorker> {
   const {
     engine,
-    executionBackend,
     cliApi,
     logger,
     platform,
@@ -74,195 +75,21 @@ export async function createWorkflowWorker(
   // Track running jobs for graceful shutdown
   const runningJobs = new Map<string, Promise<void>>();
 
+  // In-memory lock to prevent duplicate job processing from concurrent worker loops.
+  // zrangebyscore+zrem is not atomic, so multiple workers can dequeue the same entry.
+  const claimedJobs = new Set<string>();
+
+  // ExecutionBackend from platform — unified across all hosts (CLI, REST API, workflow)
+  // In container mode this is a RoutingBackend; in standard mode — in-process/worker-pool.
+  const executionBackend = platform.executionBackend;
+
   // Create SandboxRunner with ExecutionBackend
   const runner = new SandboxRunner({
-    backend: executionBackend,
+    backend: executionBackend as any, // ExecutionBackend type from plugin-execution
     cliApi,
     workspaceRoot,
     defaultTimeout,
   });
-
-  function resolveIsolationProfile(job: Record<string, unknown>, run: Record<string, unknown>): IsolationProfile {
-    const jobIsolation = job.isolation;
-    if (jobIsolation === 'strict' || jobIsolation === 'balanced' || jobIsolation === 'relaxed') {
-      return jobIsolation;
-    }
-    const runIsolation = (run.metadata as Record<string, unknown> | undefined)?.isolation;
-    if (runIsolation === 'strict' || runIsolation === 'balanced' || runIsolation === 'relaxed') {
-      return runIsolation;
-    }
-    return 'balanced';
-  }
-
-  async function resolveExecutionTarget(
-    run: Record<string, unknown>,
-    job: Record<string, unknown>,
-  ): Promise<{
-    target?: ExecutionTarget;
-    workspace?: string;
-    createdEnvironmentId?: string;
-    createdWorkspaceId?: string;
-  }> {
-    const isolation = resolveIsolationProfile(job, run);
-    const runTarget = (run.metadata as Record<string, unknown> | undefined)?.target;
-    const baseTarget = (job.target ?? runTarget ?? {}) as ExecutionTarget;
-    const namespace = baseTarget.namespace ?? `workflow/${String(run.id)}`;
-
-    if (isolation === 'relaxed') {
-      return {
-        target: {
-          ...baseTarget,
-          namespace,
-        },
-        workspace: baseTarget.workdir ?? workspaceRoot,
-      };
-    }
-
-    const workspaceProvider = platform.getAdapter<IWorkspaceProvider>('workspace');
-    if (!workspaceProvider) {
-      throw new PermanentJobError(
-        `Workflow requires isolation='${isolation}' but the workspace adapter is not configured. ` +
-        `Either set platform.adapters.workspace in kb.config.json, ` +
-        `or explicitly set isolation: relaxed in the workflow YAML to run without a dedicated workspace.`
-      );
-    }
-
-    let createdEnvironmentId: string | undefined;
-    let createdWorkspaceId: string | undefined;
-    let environmentId = baseTarget.environmentId;
-    let workspaceId = baseTarget.workspaceId;
-
-    // Materialize workspace first — for strict isolation we need rootPath to mount into the container.
-    let workspaceRootPath: string | undefined;
-    if (!workspaceId) {
-      const workspace = await workspaceProvider.materialize({
-        tenantId: typeof run.tenantId === 'string' ? run.tenantId : undefined,
-        namespace,
-        sourceRef: workspaceRoot,
-        basePath: workspaceRoot,
-        metadata: {
-          source: 'workflow',
-          runId: run.id,
-          jobId: job.id,
-        },
-      });
-      workspaceId = workspace.workspaceId;
-      createdWorkspaceId = workspace.workspaceId;
-      workspaceRootPath = workspace.rootPath;
-      logger.debug('Workspace materialized for workflow job', {
-        runId: run.id,
-        jobId: job.id,
-        workspaceId,
-        rootPath: workspaceRootPath,
-      });
-    }
-
-    if (isolation === 'strict') {
-      const environmentProvider = platform.getAdapter<IEnvironmentProvider>('environment');
-      if (!environmentProvider) {
-        throw new PermanentJobError(
-          `Workflow requires isolation='strict' but the environment adapter is not configured. ` +
-          `Set platform.adapters.environment in kb.config.json, or use isolation: balanced instead.`
-        );
-      }
-      if (!environmentId) {
-        const provisioningRunId = `${String(run.id)}:${String(job.id)}:${job.attempt ?? 0}:${randomUUID().slice(0, 8)}`;
-        const environment = await environmentProvider.create({
-          tenantId: typeof run.tenantId === 'string' ? run.tenantId : undefined,
-          namespace,
-          runId: provisioningRunId,
-          // Pass workspace rootPath so the container gets the volume mounted at create time.
-          workspacePath: workspaceRootPath,
-          metadata: {
-            source: 'workflow',
-            runId: run.id,
-            jobId: job.id,
-            attempt: job.attempt ?? 0,
-            provisioningRunId,
-          },
-        });
-        environmentId = environment.environmentId;
-        createdEnvironmentId = environment.environmentId;
-        logger.debug('Environment provisioned for workflow job', {
-          runId: run.id,
-          jobId: job.id,
-          attempt: job.attempt ?? 0,
-          environmentId,
-          workspacePath: workspaceRootPath,
-        });
-      }
-
-      if (workspaceId && environmentId) {
-        await workspaceProvider.attach({
-          workspaceId,
-          environmentId,
-        });
-        logger.debug('Workspace attached to environment for workflow job', {
-          runId: run.id,
-          jobId: job.id,
-          workspaceId,
-          environmentId,
-        });
-      }
-    }
-
-    return {
-      target: {
-        ...baseTarget,
-        namespace,
-        environmentId,
-        workspaceId,
-      },
-      workspace: baseTarget.workdir,
-      createdEnvironmentId,
-      createdWorkspaceId,
-    };
-  }
-
-  async function cleanupExecutionTarget(resources: {
-    target?: ExecutionTarget;
-    createdEnvironmentId?: string;
-    createdWorkspaceId?: string;
-  }): Promise<void> {
-    const { target, createdEnvironmentId, createdWorkspaceId } = resources;
-
-    const workspaceId = createdWorkspaceId ?? (target?.workspaceId && target.environmentId ? target.workspaceId : undefined);
-    if (workspaceId) {
-      const workspaceProvider = platform.getAdapter<IWorkspaceProvider>('workspace');
-      if (workspaceProvider) {
-        try {
-          await workspaceProvider.release(workspaceId, target?.environmentId);
-          logger.debug('Workspace released for workflow job', {
-            workspaceId,
-            environmentId: target?.environmentId,
-          });
-        } catch (error) {
-          logger.warn('Failed to release workspace', {
-            workspaceId,
-            environmentId: target?.environmentId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-    }
-
-    if (createdEnvironmentId) {
-      const environmentProvider = platform.getAdapter<IEnvironmentProvider>('environment');
-      if (environmentProvider) {
-        try {
-          await environmentProvider.destroy(createdEnvironmentId, 'workflow.job.completed');
-          logger.debug('Environment destroyed for workflow job', {
-            environmentId: createdEnvironmentId,
-          });
-        } catch (error) {
-          logger.warn('Failed to destroy environment', {
-            environmentId: createdEnvironmentId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-    }
-  }
 
   /**
    * Process a single job from the queue.
@@ -293,6 +120,13 @@ export async function createWorkflowWorker(
     }
 
     const jobKey = `${run.id}:${job.id}`;
+
+    // Guard against duplicate processing from concurrent worker loops.
+    // zrangebyscore+zrem is not atomic — multiple loops can dequeue the same entry.
+    if (claimedJobs.has(jobKey)) {
+      return true; // Another loop already claimed this job
+    }
+    claimedJobs.add(jobKey);
     const jobStartTime = Date.now();
     const jobLogger = logger.child({
       layer: 'workflow',
@@ -321,21 +155,15 @@ export async function createWorkflowWorker(
       stepCount: job.steps.length,
     }).catch(() => {});
 
+    // Resolve target hint from workflow spec (explicit override for execution plane)
+    const runTarget = (run.metadata as Record<string, unknown> | undefined)?.target as ExecutionTarget | undefined;
+    const jobTarget = job.target as ExecutionTarget | undefined;
+    const target = jobTarget ?? runTarget;
+
     // Create job execution promise for graceful shutdown tracking
+    // eslint-disable-next-line sonarjs/cognitive-complexity -- Step execution loop: handles data flow, spec.if, builtin:approval polling, builtin:gate routing with restart-from
     const jobPromise = (async () => {
-      let executionTargetResources: {
-        target?: ExecutionTarget;
-        workspace?: string;
-        createdEnvironmentId?: string;
-        createdWorkspaceId?: string;
-      } | null = null;
-
       try {
-        executionTargetResources = await resolveExecutionTarget(
-          run as unknown as Record<string, unknown>,
-          job as unknown as Record<string, unknown>,
-        );
-
         // Execute job steps using SandboxRunner
         // IMPORTANT: Steps MUST run sequentially because:
         // - Step outputs are inputs for next steps
@@ -346,6 +174,50 @@ export async function createWorkflowWorker(
           if (step.status === 'success') {
             continue; // Skip already completed steps
           }
+
+          // --- Build ExpressionContext from fresh run state ---
+          const freshRun = await engine.getRun(run.id);
+          const exprCtx: ExpressionContext = {
+            env: freshRun?.env ?? {},
+            trigger: freshRun?.trigger ?? { type: 'manual' },
+            steps: {},
+          };
+
+          // Collect outputs from all completed steps (across all jobs)
+          if (freshRun) {
+            for (const j of freshRun.jobs) {
+              for (const s of j.steps) {
+                if (s.status === 'success' && s.spec.id) {
+                  exprCtx.steps[s.spec.id] = {
+                    outputs: (s.outputs ?? {}) as Record<string, unknown>,
+                  };
+                }
+              }
+            }
+          }
+
+          // --- Evaluate spec.if (skip step if condition is false) ---
+          if (step.spec.if) {
+            const condition = step.spec.if;
+            // Strip ${{ }} wrapper if present
+            const rawExpr = condition.trim().replace(/^\$\{\{\s*/, '').replace(/\s*\}\}$/, '');
+            const shouldRun = evaluateExpression(rawExpr, exprCtx);
+            if (!shouldRun) {
+              jobLogger.info('Step skipped (condition false)', {
+                runId: run.id,
+                jobId: job.id,
+                stepId: step.id,
+                condition,
+              });
+              await engine.markStepCompleted(run.id, job.id, step.id, { skipped: true });
+              continue;
+            }
+          }
+
+          // --- Interpolate spec.with (data flow between steps) ---
+          const interpolatedWith = step.spec.with
+            ? interpolateObject(step.spec.with as Record<string, unknown>, exprCtx)
+            : undefined;
 
           const stepExecutionId = `wf-${run.id}-${job.id}-${step.id}-${Date.now()}`;
           const stepLogger = jobLogger.child({
@@ -360,19 +232,208 @@ export async function createWorkflowWorker(
             runId: run.id,
             jobId: job.id,
             stepId: step.id,
+            uses: step.spec.uses,
           });
 
+          // --- Handle builtin:approval ---
+          if (step.spec.uses === 'builtin:approval') {
+            // If step is already waiting (e.g. daemon restarted), skip to polling
+            if (step.status !== 'waiting_approval') {
+              // Persist interpolated spec.with so REST API shows resolved values
+              if (interpolatedWith) {
+                const stateStore = engine.getStateStore();
+                await stateStore.updateStep(run.id, job.id, step.id, (draft) => {
+                  draft.spec = { ...draft.spec, with: interpolatedWith };
+                });
+              }
+              await engine.markStepWaitingApproval(run.id, job.id, step.id);
+            }
+
+            stepLogger.info('Waiting for approval', {
+              runId: run.id,
+              jobId: job.id,
+              stepId: step.id,
+              context: interpolatedWith,
+            });
+
+            // Poll until approval is resolved or stop is requested
+            while (!stopRequested) {
+              await sleep(2000);
+              const currentRun = await engine.getRun(run.id);
+              const currentJob = currentRun?.jobs.find(j => j.id === job.id);
+              const currentStep = currentJob?.steps.find(s => s.id === step.id);
+
+              if (!currentStep || currentStep.status === 'success') {
+                stepLogger.info('Approval granted', { runId: run.id, stepId: step.id });
+                break;
+              }
+
+              if (currentStep.status === 'failed') {
+                const rejectMsg = currentStep.error?.message ?? 'Approval rejected';
+                stepLogger.info('Approval rejected', { runId: run.id, stepId: step.id });
+                throw new Error(rejectMsg);
+              }
+            }
+
+            if (stopRequested) {
+              stepLogger.info('Approval wait interrupted by shutdown', { stepId: step.id });
+              return;
+            }
+
+            continue; // Outputs already set by resolveApproval
+          }
+
+          // --- Handle builtin:gate ---
+          if (step.spec.uses === 'builtin:gate') {
+            const gateInput = (interpolatedWith ?? {}) as unknown as GateInput;
+            const decisionPath = gateInput.decision;
+            const maxIterations = gateInput.maxIterations ?? 3;
+
+            // Resolve decision value from expression context
+            const decisionValue = resolveValue(decisionPath, exprCtx);
+            const decisionKey = String(decisionValue);
+
+            // Find matching route
+            const route: GateRouteAction | undefined =
+              gateInput.routes[decisionKey] ?? gateInput.routes[decisionValue as string];
+            const action = route ?? gateInput.default ?? 'fail';
+
+            stepLogger.info('Gate evaluation', {
+              runId: run.id,
+              stepId: step.id,
+              decision: decisionPath,
+              decisionValue,
+              action: typeof action === 'string' ? action : 'restart',
+            });
+
+            // Track gate iterations in run metadata
+            const iterationKey = `gate:${step.spec.id ?? step.id}:iterations`;
+            const metadata = (freshRun?.metadata ?? {}) as Record<string, unknown>;
+            const currentIteration = (metadata[iterationKey] as number) ?? 0;
+
+            if (action === 'continue') {
+              await engine.markStepCompleted(run.id, job.id, step.id, {
+                decisionValue,
+                action: 'continue',
+                iteration: currentIteration,
+              });
+              continue;
+            }
+
+            if (action === 'fail') {
+              const error = new Error(`Gate failed: decision=${decisionKey}`);
+              await engine.markStepFailed(run.id, job.id, step.id, error, {
+                decisionValue,
+                action: 'fail',
+                iteration: currentIteration,
+              });
+              throw error;
+            }
+
+            // restartFrom action
+            const restartAction = action as { restartFrom: string; context?: Record<string, unknown> };
+            const nextIteration = currentIteration + 1;
+
+            if (nextIteration >= maxIterations) {
+              const error = new Error(
+                `Gate max iterations reached (${maxIterations}) for step ${step.spec.id ?? step.id}`
+              );
+              await engine.markStepFailed(run.id, job.id, step.id, error, {
+                decisionValue,
+                action: 'fail',
+                maxIterationsReached: true,
+                iteration: currentIteration,
+                maxIterations,
+              });
+              throw error;
+            }
+
+            stepLogger.info('Gate triggering restart', {
+              restartFrom: restartAction.restartFrom,
+              iteration: nextIteration,
+              maxIterations,
+            });
+
+            // Mark gate step as completed (with restart info)
+            await engine.markStepCompleted(run.id, job.id, step.id, {
+              decisionValue,
+              action: 'restart',
+              restartFrom: restartAction.restartFrom,
+              iteration: nextIteration,
+            });
+
+            // Update iteration counter in run metadata
+            await engine.updateRun(run.id, (draft) => {
+              const md = (draft.metadata ?? {}) as Record<string, unknown>;
+              md[iterationKey] = nextIteration;
+              (draft as any).metadata = md;
+
+              // Merge rework context into trigger.payload
+              if (restartAction.context) {
+                const payload = (draft.trigger.payload ?? {}) as Record<string, unknown>;
+                Object.assign(payload, restartAction.context);
+                draft.trigger.payload = payload;
+              }
+
+              return draft;
+            });
+
+            // Reset steps from target to end of job (set to queued)
+            const stateStore = engine.getStateStore();
+            const scheduler = engine.getScheduler();
+            let foundTarget = false;
+
+            for (const s of job.steps) {
+              if (s.spec.id === restartAction.restartFrom || s.id === restartAction.restartFrom) {
+                foundTarget = true;
+              }
+              if (foundTarget) {
+                await stateStore.updateStep(run.id, job.id, s.id, (draft) => {
+                  draft.status = 'queued';
+                  draft.startedAt = undefined;
+                  draft.finishedAt = undefined;
+                  draft.error = undefined;
+                  draft.outputs = undefined;
+                });
+              }
+            }
+
+            // Reset job status and re-enqueue
+            await stateStore.updateJob(run.id, job.id, (draft) => {
+              draft.status = 'queued';
+              draft.startedAt = undefined;
+              draft.finishedAt = undefined;
+            });
+
+            const updatedRun = await engine.getRun(run.id);
+            const updatedJob = updatedRun?.jobs.find(j => j.id === job.id);
+            if (updatedJob) {
+              await scheduler.enqueueJob(run.id, updatedJob, updatedJob.priority ?? 'normal');
+            }
+
+            // Exit processJob — worker will pick up the re-queued job
+            return;
+          }
+
+          // --- Regular step execution ---
           // Mark step as started (sets startedAt timestamp)
           await engine.markStepStarted(run.id, job.id, step.id);
 
+          // Build spec with interpolated `with`
+          const interpolatedSpec = interpolatedWith
+            ? { ...step.spec, with: interpolatedWith }
+            : step.spec;
+
+          // Delegate execution to the execution plane.
+          // The platform handles provisioning (workspace, environment, cleanup) transparently.
           const result = await runner.execute({
-            spec: step.spec,  // Pass StepSpec, not StepRun
+            spec: interpolatedSpec,
             context: {
               runId: run.id,
               jobId: job.id,
               stepId: step.id,
               attempt: 1,
-              env: run.env || ({} as Record<string, string>),
+              env: freshRun?.env || ({} as Record<string, string>),
               secrets: {} as Record<string, string>, // TODO: map run.secrets array to Record
               logger: {
                 debug: (message: string, meta?: Record<string, unknown>) => stepLogger.debug(message, meta),
@@ -385,9 +446,12 @@ export async function createWorkflowWorker(
                 spanId: stepExecutionId,
                 parentSpanId: job.id,
               },
+              onLog: (entry) => {
+                void engine.publishLog(run.id, job.id, step.id, entry);
+              },
             },
-            workspace: executionTargetResources.workspace,
-            target: executionTargetResources.target,
+            workspace: workspaceRoot,
+            target,
           });
 
           if (result.status === 'failed') {
@@ -436,19 +500,7 @@ export async function createWorkflowWorker(
         const err = error instanceof Error ? error : new Error(String(error));
         const jobDuration = Date.now() - jobStartTime;
 
-        // Permanent errors (misconfiguration, invalid spec) must not be retried —
-        // the outcome will be identical on every attempt. Go straight to failed.
-        const shouldRetry = !(error instanceof PermanentJobError);
-
-        if (!shouldRetry) {
-          jobLogger.error('Job failed permanently (no retry)', err, {
-            runId: run.id,
-            jobId: job.id,
-            errorType: err.name,
-          });
-        }
-
-        await engine.markJobFailed(run.id, job.id, err, shouldRetry);
+        await engine.markJobFailed(run.id, job.id, err);
 
         // Track job processing failed
         analytics?.track('workflow.worker.job.failed', {
@@ -456,15 +508,12 @@ export async function createWorkflowWorker(
           jobId: job.id,
           jobName: job.jobName,
           errorMessage: err.message,
-          permanent: !shouldRetry,
           durationMs: jobDuration,
         }).catch(() => {});
       } finally {
-        if (executionTargetResources) {
-          await cleanupExecutionTarget(executionTargetResources);
-        }
         // Remove from tracking
         runningJobs.delete(jobKey);
+        claimedJobs.delete(jobKey);
       }
     })();
 

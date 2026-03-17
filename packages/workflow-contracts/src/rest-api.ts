@@ -164,6 +164,8 @@ export interface WorkflowInfo {
   status?: 'active' | 'inactive';
   /** Tags */
   tags?: string[];
+  /** Declared input parameters schema */
+  inputs?: Record<string, { type: 'string' | 'number' | 'boolean'; description?: string; required?: boolean; default?: unknown }>;
 }
 
 /**

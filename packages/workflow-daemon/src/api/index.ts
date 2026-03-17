@@ -5,6 +5,7 @@
 
 export { registerJobsAPI, type JobsAPIOptions } from './jobs-api.js';
 export { registerCronAPI, type CronAPIOptions } from './cron-api.js';
+export { registerApprovalsAPI, type ApprovalsAPIOptions } from './approvals-api.js';
 export {
   ok,
   fail,

@@ -332,6 +332,7 @@ export class WorkflowRepository {
         description: parsed.description,
         on: parsed.on || { manual: true },
         isolation: parsed.isolation,
+        inputs: parsed.inputs,
         jobs: parsed.jobs,
         env: parsed.env,
         secrets: parsed.secrets,
@@ -440,8 +441,10 @@ export class WorkflowRepository {
       schedule,
       status,
       stats,
-      // Store spec for later execution
+      // Store full spec for execution
       input: spec,
+      // Expose declared input schema for REST API / Studio UI
+      inputSchema: spec.inputs,
     };
   }
 }

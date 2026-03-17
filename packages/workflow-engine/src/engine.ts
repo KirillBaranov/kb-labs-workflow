@@ -5,10 +5,10 @@ import type {
 } from '@kb-labs/workflow-contracts'
 import {
   EVENT_NAMES,
+  WORKFLOW_REDIS_CHANNEL,
   type WorkflowEventName,
 } from '@kb-labs/workflow-constants'
-import type { ICache, IEventBus, ILogger, IAnalytics } from '@kb-labs/core-platform'
-import type { ExecutionBackend } from '@kb-labs/plugin-execution'
+import type { ICache, IEventBus, ILogger, IAnalytics, Unsubscribe } from '@kb-labs/core-platform'
 import { StateStore } from './state-store'
 import { ConcurrencyManager, type AcquireOptions } from './concurrency-manager'
 import {
@@ -20,7 +20,7 @@ import {
   type SchedulerOptions,
   type JobQueueEntry,
 } from './scheduler'
-import { EventBusBridge } from './event-bus'
+import { EventBusBridge, type WorkflowEvent } from './event-bus'
 import { WorkflowLoader } from './workflow-loader'
 import type { CreateRunInput, EngineLogger, RunContext } from './types'
 import { RunSnapshotStorage, type RunSnapshot } from './run-snapshot'
@@ -49,8 +49,6 @@ export interface WorkflowEngineOptions {
   logger: ILogger
   /** Platform analytics adapter (OPTIONAL) */
   analytics?: IAnalytics
-  /** Platform execution backend (OPTIONAL - for plugin step execution) */
-  executionBackend?: ExecutionBackend
   /** Platform snapshot manager (OPTIONAL - for infra snapshot restore in replay) */
   snapshotManager?: SnapshotManagerClient
   /** Workspace root (monorepo root) - used for plugin execution context */
@@ -97,6 +95,20 @@ export class WorkflowEngine {
 
   async dispose(): Promise<void> {
     // Cleanup if needed
+  }
+
+  /**
+   * Subscribe to real-time events for a specific workflow run.
+   * Events are filtered by runId from the shared event bus channel.
+   */
+  subscribeToRunEvents(
+    runId: string,
+    handler: (event: WorkflowEvent) => void,
+  ): Unsubscribe {
+    return this.options.events.subscribe(WORKFLOW_REDIS_CHANNEL, async (raw: unknown) => {
+      const event = raw as WorkflowEvent
+      if (event.runId === runId) handler(event)
+    })
   }
 
   async createRun(input: CreateRunInput): Promise<WorkflowRun> {
@@ -228,6 +240,13 @@ export class WorkflowEngine {
       willRetry: shouldRetry && this.shouldRetryJob(job),
     }).catch(() => {})
 
+    await this.events.publish({
+      type: EVENT_NAMES.job.failed,
+      runId,
+      jobId,
+      payload: { jobName: job.jobName, error: error.message, attempt: (job.attempt || 0) + 1 },
+    })
+
     // Check if should retry
     if (shouldRetry && this.shouldRetryJob(job)) {
       const backoffMs = this.calculateBackoff(job.attempt || 0, job.retries)
@@ -296,6 +315,13 @@ export class WorkflowEngine {
       jobName: job?.jobName,
       stepCount: job?.steps.length ?? 0,
     }).catch(() => {})
+
+    await this.events.publish({
+      type: EVENT_NAMES.job.started,
+      runId,
+      jobId,
+      payload: { jobName: job?.jobName },
+    })
   }
 
   /**
@@ -322,6 +348,13 @@ export class WorkflowEngine {
       durationMs: duration,
       stepCount: job?.steps.length ?? 0,
     }).catch(() => {})
+
+    await this.events.publish({
+      type: EVENT_NAMES.job.succeeded,
+      runId,
+      jobId,
+      payload: { jobName: job?.jobName, durationMs: duration },
+    })
 
     // Check if all jobs in run are completed - update run status
     await this.checkRunCompletion(runId)
@@ -362,6 +395,12 @@ export class WorkflowEngine {
         jobCount: run.jobs.length,
         status: 'success',
       }).catch(() => {})
+
+      await this.events.publish({
+        type: EVENT_NAMES.run.finished,
+        runId,
+        payload: { status: 'success', name: run.name },
+      })
     } else if (anyFailed) {
       await this.stateStore.updateRun(runId, (draft) => {
         draft.status = 'failed'
@@ -377,6 +416,12 @@ export class WorkflowEngine {
         jobCount: run.jobs.length,
         status: 'failed',
       }).catch(() => {})
+
+      await this.events.publish({
+        type: EVENT_NAMES.run.failed,
+        runId,
+        payload: { status: 'failed', name: run.name },
+      })
     }
   }
 
@@ -390,6 +435,13 @@ export class WorkflowEngine {
     })
 
     this.logger.debug('Step started', { runId, jobId, stepId })
+
+    await this.events.publish({
+      type: EVENT_NAMES.step.started,
+      runId,
+      jobId,
+      stepId,
+    })
   }
 
   /**
@@ -410,6 +462,14 @@ export class WorkflowEngine {
     })
 
     this.logger.debug('Step completed', { runId, jobId, stepId })
+
+    await this.events.publish({
+      type: EVENT_NAMES.step.succeeded,
+      runId,
+      jobId,
+      stepId,
+      payload: output !== undefined ? { outputs: output } : undefined,
+    })
   }
 
   /**
@@ -420,6 +480,7 @@ export class WorkflowEngine {
     jobId: string,
     stepId: string,
     error: Error,
+    outputs?: Record<string, unknown>,
   ): Promise<void> {
     await this.stateStore.updateStep(runId, jobId, stepId, (draft) => {
       draft.status = 'failed'
@@ -428,9 +489,147 @@ export class WorkflowEngine {
         message: error.message,
         stack: error.stack,
       }
+      if (outputs) draft.outputs = outputs
     })
 
     this.logger.debug('Step failed', { runId, jobId, stepId, error: error.message })
+
+    await this.events.publish({
+      type: EVENT_NAMES.step.failed,
+      runId,
+      jobId,
+      stepId,
+      payload: { error: error.message },
+    })
+  }
+
+  /**
+   * Mark step as waiting for human approval.
+   */
+  async markStepWaitingApproval(
+    runId: string,
+    jobId: string,
+    stepId: string,
+  ): Promise<void> {
+    await this.stateStore.updateStep(runId, jobId, stepId, (draft) => {
+      draft.status = 'waiting_approval' as any
+      draft.startedAt = draft.startedAt ?? new Date().toISOString()
+    })
+
+    await this.events.publish({
+      type: EVENT_NAMES.step.waitingApproval as any,
+      runId,
+      payload: { jobId, stepId },
+    })
+
+    this.logger.info('Step waiting for approval', { runId, jobId, stepId })
+  }
+
+  /**
+   * Resolve a pending approval — approve or reject.
+   * On approve: marks step as success with approval outputs.
+   * On reject: marks step as failed with rejection error.
+   */
+  async resolveApproval(
+    runId: string,
+    jobId: string,
+    stepId: string,
+    action: 'approve' | 'reject',
+    data?: Record<string, unknown>,
+    comment?: string,
+  ): Promise<void> {
+    if (action === 'approve') {
+      await this.stateStore.updateStep(runId, jobId, stepId, (draft) => {
+        draft.status = 'success'
+        draft.finishedAt = new Date().toISOString()
+        draft.outputs = {
+          approved: true,
+          action,
+          ...(comment ? { comment } : {}),
+          ...(data ?? {}),
+        }
+      })
+
+      this.logger.info('Approval granted', { runId, jobId, stepId, comment })
+    } else {
+      await this.stateStore.updateStep(runId, jobId, stepId, (draft) => {
+        draft.status = 'failed'
+        draft.finishedAt = new Date().toISOString()
+        draft.error = {
+          message: comment || 'Approval rejected',
+          code: 'APPROVAL_REJECTED',
+        }
+        draft.outputs = {
+          approved: false,
+          action,
+          ...(comment ? { comment } : {}),
+          ...(data ?? {}),
+        }
+      })
+
+      this.logger.info('Approval rejected', { runId, jobId, stepId, comment })
+    }
+
+    await this.events.publish({
+      type: EVENT_NAMES.step.updated,
+      runId,
+      payload: { jobId, stepId, action },
+    })
+  }
+
+  /**
+   * Get the state store for direct access (used by worker for gate restart-from).
+   */
+  getStateStore(): StateStore {
+    return this.stateStore
+  }
+
+  /**
+   * Get the scheduler for direct access (used by worker for gate re-enqueue).
+   */
+  getScheduler(): Scheduler {
+    return this.scheduler
+  }
+
+  /**
+   * Mark stale running/queued runs as failed on daemon startup.
+   * Runs that were in-flight when the daemon crashed are unrecoverable —
+   * their executor process is gone, so we mark them failed immediately.
+   */
+  async cleanupStaleRuns(): Promise<void> {
+    const runIds = await this.stateStore.getAllRunIds()
+    const now = new Date().toISOString()
+    let count = 0
+
+    await Promise.all(
+      runIds.map(async (runId) => {
+        const run = await this.stateStore.getRun(runId)
+        if (!run) { return }
+        if (run.status !== 'running' && run.status !== 'queued') { return }
+
+        await this.stateStore.updateRun(runId, (draft) => {
+          draft.status = 'failed'
+          draft.finishedAt = now
+          if (draft.startedAt) {
+            draft.durationMs = new Date(now).getTime() - new Date(draft.startedAt).getTime()
+          }
+          // Mark any still-active jobs as failed too
+          for (const job of draft.jobs) {
+            if (job.status === 'running' || job.status === 'queued') {
+              job.status = 'failed'
+              job.error = { message: 'Daemon restarted — run was abandoned' }
+              job.finishedAt = now
+            }
+          }
+          return draft
+        })
+        count++
+      }),
+    )
+
+    if (count > 0) {
+      this.logger.warn('Cleaned up stale runs from previous daemon process', { count })
+    }
   }
 
   /**
@@ -628,6 +827,24 @@ export class WorkflowEngine {
         name: run.name,
         version: run.version,
       },
+    })
+  }
+
+  /**
+   * Publish a log entry for real-time streaming to Studio UI.
+   */
+  async publishLog(
+    runId: string,
+    jobId: string,
+    stepId: string,
+    entry: { level: string; message: string; stream: string; lineNo: number; timestamp: string; meta?: Record<string, unknown> },
+  ): Promise<void> {
+    await this.events.publish({
+      type: EVENT_NAMES.log.appended,
+      runId,
+      jobId,
+      stepId,
+      payload: entry,
     })
   }
 

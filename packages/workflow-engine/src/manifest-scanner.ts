@@ -99,9 +99,11 @@ export interface WorkflowRuntime {
   // Permissions
   permissions?: unknown; // From manifest
 
-  // Input/output schemas
+  // Full spec stored for execution (standalone workflows)
   input?: unknown;
   output?: unknown;
+  // Declared input parameter schema exposed via REST API
+  inputSchema?: Record<string, { type: 'string' | 'number' | 'boolean'; description?: string; required?: boolean; default?: unknown }>;
 }
 
 /**

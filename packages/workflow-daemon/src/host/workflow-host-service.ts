@@ -15,6 +15,7 @@ import type {
   WorkflowInfo,
   WorkflowListResponse,
   WorkflowRun,
+  WorkflowRunHistoryResponse,
   WorkflowRunRequest,
 } from '@kb-labs/workflow-contracts';
 import type { JobBroker } from '../job-broker.js';
@@ -256,11 +257,11 @@ export class WorkflowHostService {
       trigger: {
         type: triggerType,
         actor: request.trigger?.user,
+        payload:
+          request.input && typeof request.input === 'object'
+            ? (request.input as Record<string, unknown>)
+            : undefined,
       },
-      env:
-        request.input && typeof request.input === 'object'
-          ? (request.input as Record<string, string>)
-          : undefined,
     });
 
     return {
@@ -377,6 +378,54 @@ export class WorkflowHostService {
     }
   }
 
+  async listWorkflowRuns(
+    workflowId: string,
+    filters?: { limit?: number; offset?: number; status?: string },
+  ): Promise<WorkflowRunHistoryResponse> {
+    const allRuns = (await this.options.engine.getAllRuns()) as WorkflowRun[];
+
+    // Try to resolve workflow name from id for matching
+    let workflowName: string | undefined;
+    if (this.options.workflowService) {
+      const workflow = await this.options.workflowService.get(workflowId);
+      workflowName = workflow?.name;
+    }
+
+    let runs = allRuns.filter((run) =>
+      run.name === workflowId ||
+      (workflowName && run.name === workflowName)
+    );
+
+    if (filters?.status) {
+      runs = runs.filter((run) => run.status === filters.status);
+    }
+
+    // Sort newest first
+    runs.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+
+    const start = filters?.offset ?? 0;
+    const end = filters?.limit ? start + filters.limit : runs.length;
+    const page = runs.slice(start, end);
+
+    return {
+      workflowId,
+      runs: page.map((run) => ({
+        id: run.id,
+        workflowId,
+        status: run.status as 'pending' | 'running' | 'completed' | 'failed' | 'cancelled',
+        trigger: {
+          type: (run.trigger?.type as 'manual' | 'api' | 'cron') ?? 'manual',
+          user: run.trigger?.actor,
+        },
+        startedAt: run.startedAt ?? run.createdAt ?? new Date().toISOString(),
+        finishedAt: run.finishedAt,
+        durationMs: run.durationMs,
+        error: run.result?.error?.message,
+      })),
+      total: runs.length,
+    };
+  }
+
   private mapWorkflowInfo(workflow: any): WorkflowInfo {
     return {
       id: workflow.id,
@@ -386,7 +435,46 @@ export class WorkflowHostService {
       pluginId: workflow.pluginId,
       status: workflow.status === 'active' ? 'active' : 'inactive',
       tags: workflow.tags,
+      inputs: workflow.inputSchema,
     };
+  }
+
+  async getRun(runId: string): Promise<WorkflowRun | null> {
+    return (await this.options.engine.getRun(runId)) as WorkflowRun | null;
+  }
+
+  async listRuns(filters?: {
+    status?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ runs: WorkflowRun[]; total: number }> {
+    const allRuns = (await this.options.engine.getAllRuns()) as WorkflowRun[];
+
+    let runs = allRuns;
+
+    if (filters?.status) {
+      runs = runs.filter((run) => run.status === filters.status);
+    }
+
+    // Sort newest first
+    runs.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+
+    const total = runs.length;
+    const start = filters?.offset ?? 0;
+    const end = filters?.limit ? start + filters.limit : runs.length;
+
+    return { runs: runs.slice(start, end), total };
+  }
+
+  async cancelRun(runId: string): Promise<void> {
+    const run = await this.options.engine.getRun(runId);
+    if (!run) {
+      throw new Error('Run not found');
+    }
+    if (run.status !== 'running' && run.status !== 'queued') {
+      throw new Error(`Cannot cancel run with status "${run.status}"`);
+    }
+    await this.options.engine.cancelRun(runId);
   }
 
   private requireWorkflowService(): WorkflowService {

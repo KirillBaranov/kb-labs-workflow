@@ -38,12 +38,15 @@ import type {
   PluginContextDescriptor,
   HostContext,
 } from '@kb-labs/plugin-execution'
+import type { PermissionSpec } from '@kb-labs/plugin-contracts'
+import { getHandlerPermissions } from '@kb-labs/plugin-contracts'
 import type { CliAPI } from '@kb-labs/cli-api'
 import type {
   Runner,
   StepExecutionRequest,
   StepExecutionResult,
 } from '../types'
+import { toWorkflowOutputs } from './output-normalizer.js'
 import type { IAnalytics, ILogger } from '@kb-labs/core-platform'
 
 export interface SandboxRunnerOptions {
@@ -83,6 +86,7 @@ interface PluginCommandResolution {
   pluginRoot: string
   handler: string
   input: unknown
+  permissions: PermissionSpec
   configSection?: string
 }
 
@@ -145,7 +149,7 @@ export class SandboxRunner implements Runner {
       uses: spec.uses,
     }).catch(() => {})
 
-    const result = await this.backend.execute(executionRequest, { signal })
+    const result = await this.backend.execute(executionRequest, { signal, onLog: context.onLog })
     const duration = Date.now() - startTime
 
     // Track plugin execution result
@@ -239,7 +243,7 @@ export class SandboxRunner implements Runner {
       pluginId: resolution.pluginId,
       pluginVersion: resolution.pluginVersion,
       requestId,
-      permissions: {}, // TODO: Extract from plugin manifest if needed
+      permissions: resolution.permissions,
       hostContext,
       configSection: resolution.configSection, // For useConfig() auto-detection
     }
@@ -262,7 +266,7 @@ export class SandboxRunner implements Runner {
             cwd: request.workspace,
           }
         : undefined,
-      timeoutMs: this.defaultTimeout,
+      timeoutMs: resolution.permissions.quotas?.timeoutMs ?? this.defaultTimeout,
       target: request.target,
     }
   }
@@ -308,9 +312,7 @@ export class SandboxRunner implements Runner {
 
       return {
         status: 'success',
-        outputs: typeof result.data === 'object' && result.data !== null
-          ? (result.data as Record<string, unknown>)
-          : { result: result.data },
+        outputs: toWorkflowOutputs(result.data),
       }
     }
 
@@ -365,6 +367,10 @@ export class SandboxRunner implements Runner {
       return this.resolveBuiltinShell(spec)
     }
 
+    if (uses === 'builtin:approval' || uses === 'builtin:gate') {
+      throw new Error(`${uses} is handled by the workflow worker, not the sandbox runner`)
+    }
+
     throw new Error(`Unsupported uses format: ${uses}. Expected "plugin:...", "command:...", or "builtin:shell"`)
   }
 
@@ -387,7 +393,10 @@ export class SandboxRunner implements Runner {
 
     // Get plugin manifest from CLI API snapshot
     const snapshot = this.cliApi.snapshot()
-    const entry = snapshot.manifests?.find((m: { pluginId: string }) => m.pluginId === pluginId)
+    // Match by exact pluginId or by short name (e.g. "quality" matches "@kb-labs/quality")
+    const entry = snapshot.manifests?.find((m) =>
+      m.pluginId === pluginId || m.pluginId.endsWith(`/${pluginId}`)
+    )
 
     if (!entry) {
       throw new Error(`Plugin not found: ${pluginId}`)
@@ -407,6 +416,7 @@ export class SandboxRunner implements Runner {
       pluginRoot: entry.pluginRoot,
       handler: handler.handler, // File path from manifest
       input,
+      permissions: getHandlerPermissions(entry.manifest, 'workflow', handlerName),
     }
   }
 
@@ -440,6 +450,7 @@ export class SandboxRunner implements Runner {
           pluginRoot: entry.pluginRoot,
           handler: command.handler,
           input: this.adaptToCLIFormat(input, request), // CLI Adapter
+          permissions: getHandlerPermissions(entry.manifest, 'cli', commandName),
           configSection: entry.manifest.configSection, // For useConfig() auto-detection
         }
       }
@@ -511,6 +522,9 @@ export class SandboxRunner implements Runner {
       pluginRoot: builtinsPath,
       handler: 'dist/shell.js', // Relative path from pluginRoot
       input: shellInput,
+      permissions: {
+        shell: { allow: ['*'] }, // builtin:shell needs shell access by definition
+      },
     }
   }
 }

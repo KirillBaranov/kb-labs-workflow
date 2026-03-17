@@ -6,12 +6,19 @@
 import type { FastifyInstance } from 'fastify';
 import type { ILogger } from '@kb-labs/core-platform';
 import type { WorkflowRunRequest } from '@kb-labs/workflow-contracts';
+import type { WorkflowEngine } from '@kb-labs/workflow-engine';
 import type { WorkflowHostService } from '../host/workflow-host-service.js';
 import { fail, ok } from './response.js';
+
+const TERMINAL_EVENTS = ['run.finished', 'run.failed', 'run.cancelled'];
+const TERMINAL_STATUSES = ['success', 'failed', 'cancelled', 'skipped'];
+const KEEP_ALIVE_MS = 30_000;
+const IDLE_TIMEOUT_MS = 60_000;
 
 export interface RegisterWorkflowsAPIOptions {
   server: FastifyInstance;
   hostService: WorkflowHostService;
+  engine: WorkflowEngine;
   logger: ILogger;
 }
 
@@ -21,10 +28,11 @@ export interface RegisterWorkflowsAPIOptions {
  * Endpoints:
  * - GET /api/v1/workflows - List all workflow definitions
  * - GET /api/v1/workflows/:id - Get workflow definition details
+ * - GET /api/v1/workflows/:id/runs - Get run history for a workflow
  * - POST /api/v1/workflows/:id/run - Run a workflow
  */
 export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void {
-  const { server, hostService, logger } = options;
+  const { server, hostService, engine, logger } = options;
 
   // GET /api/v1/workflows - List all workflow definitions
   server.get<{
@@ -60,6 +68,26 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
     }
   });
 
+  // GET /api/v1/workflows/:id/runs - Get run history for a workflow
+  server.get<{
+    Params: { id: string };
+    Querystring: { limit?: string; offset?: string; status?: string };
+  }>('/api/v1/workflows/:id/runs', async (request, reply) => {
+    try {
+      const { id } = request.params;
+      const { limit, offset, status } = request.query;
+      const response = await hostService.listWorkflowRuns(id, {
+        limit: limit ? parseInt(limit, 10) : 50,
+        offset: offset ? parseInt(offset, 10) : 0,
+        status,
+      });
+      return ok(response);
+    } catch (error) {
+      logger.error('[workflows-api] Error listing workflow runs', error instanceof Error ? error : undefined);
+      return fail(reply, 500, error instanceof Error ? error.message : 'Failed to list workflow runs');
+    }
+  });
+
   // POST /api/v1/workflows/:id/run - Run a workflow
   server.post<{
     Params: { id: string };
@@ -77,6 +105,137 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
       logger.error('[workflows-api] Error running workflow', error instanceof Error ? error : undefined);
       return fail(reply, 500, message);
     }
+  });
+
+  // POST /api/v1/workflows/runs/:runId/cancel - Cancel a running workflow run
+  server.post<{
+    Params: { runId: string };
+  }>('/api/v1/workflows/runs/:runId/cancel', async (request, reply) => {
+    try {
+      const { runId } = request.params;
+      await hostService.cancelRun(runId);
+      return ok({ cancelled: true, runId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to cancel run';
+      if (message === 'Run not found') {
+        return fail(reply, 404, message);
+      }
+      if (message.startsWith('Cannot cancel run')) {
+        return fail(reply, 409, message);
+      }
+      logger.error('[workflows-api] Error cancelling run', error instanceof Error ? error : undefined);
+      return fail(reply, 500, message);
+    }
+  });
+
+  // GET /api/v1/runs - List all workflow runs (across all workflows)
+  server.get<{
+    Querystring: { status?: string; limit?: string; offset?: string };
+  }>('/api/v1/runs', async (request, reply) => {
+    try {
+      const { status, limit, offset } = request.query;
+      const response = await hostService.listRuns({
+        status,
+        limit: limit ? parseInt(limit, 10) : 50,
+        offset: offset ? parseInt(offset, 10) : 0,
+      });
+      return ok(response);
+    } catch (error) {
+      logger.error('[workflows-api] Error listing runs', error instanceof Error ? error : undefined);
+      return fail(reply, 500, error instanceof Error ? error.message : 'Failed to list runs');
+    }
+  });
+
+  // GET /api/v1/runs/:runId - Get a specific workflow run
+  server.get<{
+    Params: { runId: string };
+  }>('/api/v1/runs/:runId', async (request, reply) => {
+    try {
+      const { runId } = request.params;
+      const run = await hostService.getRun(runId);
+      if (!run) {
+        return fail(reply, 404, 'Run not found');
+      }
+      return ok({ run });
+    } catch (error) {
+      logger.error('[workflows-api] Error getting run', error instanceof Error ? error : undefined);
+      return fail(reply, 500, error instanceof Error ? error.message : 'Failed to get run');
+    }
+  });
+
+  // GET /api/v1/workflows/runs/:runId/events — SSE stream of run events
+  server.get<{
+    Params: { runId: string };
+  }>('/api/v1/workflows/runs/:runId/events', async (request, reply) => {
+    const { runId } = request.params;
+
+    const run = await engine.getRun(runId);
+    if (!run) {
+      return fail(reply, 404, 'Run not found');
+    }
+
+    // SSE response
+    reply.hijack();
+    const raw = reply.raw;
+
+    const origin = request.headers.origin;
+    if (typeof origin === 'string' && origin.startsWith('http://localhost')) {
+      raw.setHeader('Access-Control-Allow-Origin', origin);
+      raw.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    raw.setHeader('Content-Type', 'text/event-stream');
+    raw.setHeader('Cache-Control', 'no-cache, no-transform');
+    raw.setHeader('Connection', 'keep-alive');
+    raw.flushHeaders?.();
+    raw.write(': connected\n\n');
+
+    const sendEvent = (type: string, payload: unknown) => {
+      if (raw.writableEnded) return;
+      raw.write(`event: workflow.event\n`);
+      raw.write(`data: ${JSON.stringify({ type, runId, payload, timestamp: new Date().toISOString() })}\n\n`);
+    };
+
+    // Send current snapshot
+    sendEvent('run.snapshot', run);
+
+    // If run already terminal — close immediately
+    if (TERMINAL_STATUSES.includes(run.status)) {
+      raw.end();
+      return;
+    }
+
+    // Subscribe to live events
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const resetIdle = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        cleanup();
+      }, IDLE_TIMEOUT_MS);
+    };
+
+    const keepAliveTimer = setInterval(() => {
+      if (raw.writableEnded) return;
+      raw.write(': keep-alive\n\n');
+    }, KEEP_ALIVE_MS);
+
+    const unsubscribe = engine.subscribeToRunEvents(runId, (event) => {
+      sendEvent(event.type, event.payload);
+      resetIdle();
+      if (TERMINAL_EVENTS.includes(event.type)) {
+        cleanup();
+      }
+    });
+
+    const cleanup = () => {
+      unsubscribe();
+      if (idleTimer) clearTimeout(idleTimer);
+      clearInterval(keepAliveTimer);
+      if (!raw.writableEnded) raw.end();
+    };
+
+    resetIdle();
+    request.raw.on('close', cleanup);
   });
 
   logger.info('[workflows-api] Workflows API endpoints registered');

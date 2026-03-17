@@ -255,6 +255,27 @@ export const manifest = {
           zod: '@kb-labs/workflow-contracts#WorkflowRunHistoryResponseSchema',
         },
       },
+      // POST /workflows/runs/:runId/cancel - Cancel a workflow run
+      {
+        method: 'POST',
+        path: WORKFLOW_ROUTES.WORKFLOW_RUN_CANCEL,
+        handler: './rest/workflow-run-cancel-handler.js#default',
+        describe: 'Cancel a running or queued workflow run',
+      },
+      // GET /runs - List all workflow runs
+      {
+        method: 'GET',
+        path: WORKFLOW_ROUTES.RUNS,
+        handler: './rest/runs-list-handler.js#default',
+        describe: 'List all workflow runs across all workflows',
+      },
+      // GET /runs/:runId - Get a specific workflow run
+      {
+        method: 'GET',
+        path: WORKFLOW_ROUTES.RUN_DETAIL,
+        handler: './rest/run-detail-handler.js#default',
+        describe: 'Get detailed information about a specific workflow run',
+      },
       // GET /workflows/jobs - List jobs
       {
         method: 'GET',
@@ -314,6 +335,20 @@ export const manifest = {
         output: {
           zod: '@kb-labs/workflow-contracts#CronListResponseSchema',
         },
+      },
+      // GET /runs/:runId/pending-approvals - List pending approvals
+      {
+        method: 'GET',
+        path: WORKFLOW_ROUTES.PENDING_APPROVALS,
+        handler: './rest/pending-approvals-handler.js#default',
+        describe: 'List steps waiting for approval in a workflow run',
+      },
+      // POST /runs/:runId/approve - Resolve approval
+      {
+        method: 'POST',
+        path: WORKFLOW_ROUTES.RESOLVE_APPROVAL,
+        handler: './rest/resolve-approval-handler.js#default',
+        describe: 'Approve or reject a pending approval step',
       },
     ],
   },

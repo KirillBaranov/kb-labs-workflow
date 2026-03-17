@@ -22,6 +22,12 @@ export const WORKFLOW_ROUTES = {
   WORKFLOW_RUN: '/workflows/:id/run',
   /** GET /workflows/:id/runs - Get workflow run history */
   WORKFLOW_RUNS: '/workflows/:id/runs',
+  /** POST /workflows/runs/:runId/cancel - Cancel a workflow run */
+  WORKFLOW_RUN_CANCEL: '/workflows/runs/:runId/cancel',
+  /** GET /runs - List all workflow runs */
+  RUNS: '/runs',
+  /** GET /runs/:runId - Get a specific workflow run */
+  RUN_DETAIL: '/runs/:runId',
   /** GET /jobs - List all jobs */
   JOBS: '/jobs',
   /** GET /jobs/:jobId - Get job details */
@@ -34,4 +40,8 @@ export const WORKFLOW_ROUTES = {
   JOB_CANCEL: '/jobs/:jobId/cancel',
   /** GET /cron - List cron jobs */
   CRON: '/cron',
+  /** GET /runs/:runId/pending-approvals - List pending approvals */
+  PENDING_APPROVALS: '/runs/:runId/pending-approvals',
+  /** POST /runs/:runId/approve - Resolve an approval */
+  RESOLVE_APPROVAL: '/runs/:runId/approve',
 } as const

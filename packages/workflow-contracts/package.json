@@ -30,12 +30,12 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@kb-labs/sdk": "link:../../../kb-labs-sdk/packages/sdk",
+    "@kb-labs/sdk": "workspace:*",
     "@kb-labs/workflow-constants": "workspace:*",
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@kb-labs/devkit": "link:../../../kb-labs-devkit",
+    "@kb-labs/devkit": "workspace:*",
     "@types/node": "^24.3.3",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",

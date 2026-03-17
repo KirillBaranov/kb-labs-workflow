@@ -59,6 +59,7 @@ export const StepSpecSchema = z.object({
     .union([
       z.literal('builtin:shell'),
       z.literal('builtin:approval'),
+      z.literal('builtin:gate'),
       z.string().regex(/^(plugin:|workflow:)?[a-zA-Z0-9@/_:+#.-]+$/),
     ])
     .optional(),
@@ -152,6 +153,15 @@ export const WorkflowTriggerSchema = z
     },
   )
 
+export const WorkflowInputFieldSchema = z.object({
+  type: z.enum(['string', 'number', 'boolean']),
+  description: z.string().optional(),
+  required: z.boolean().optional(),
+  default: z.unknown().optional(),
+})
+
+export type WorkflowInputField = z.infer<typeof WorkflowInputFieldSchema>
+
 export const WorkflowSpecSchema = z
   .object({
     name: z.string().min(1),
@@ -160,6 +170,7 @@ export const WorkflowSpecSchema = z
     target: ExecutionTargetSchema.optional(),
     isolation: IsolationProfileSchema.optional(),
     on: WorkflowTriggerSchema,
+    inputs: z.record(z.string(), WorkflowInputFieldSchema).optional(),
     env: z.record(z.string(), z.string()).optional(),
     secrets: z.array(z.string().min(1)).optional(),
     jobs: z.record(z.string().min(1), JobSpecSchema),

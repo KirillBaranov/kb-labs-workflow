@@ -57,7 +57,7 @@
   },
   "devDependencies": {
     "@byjohann/toon": "*",
-    "@kb-labs/devkit": "link:../kb-labs-devkit",
+    "@kb-labs/devkit": "workspace:*",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
     "@vitest/coverage-v8": "^3",

@@ -140,7 +140,7 @@ export function evaluateExpression(
 /**
  * Resolve a value from context (e.g., "env.VAR", "steps.build.outputs.version")
  */
-function resolveValue(path: string, context: ExpressionContext): unknown {
+export function resolveValue(path: string, context: ExpressionContext): unknown {
   // Remove quotes
   const cleanPath = path.replace(/^["']|["']$/g, '')
 
@@ -166,14 +166,22 @@ function resolveValue(path: string, context: ExpressionContext): unknown {
     return ''
   }
 
-  // steps.<id>.outputs.<key>
+  // steps.<id>.outputs.<key>[.<nested>...]
   if (cleanPath.startsWith('steps.')) {
     const rest = cleanPath.slice('steps.'.length)
     const match = rest.match(/^([^.]+)\.outputs\.(.+)$/)
     if (match) {
       const stepId = match[1]!
       const outputKey = match[2]!
-      const value = context.steps[stepId]?.outputs[outputKey]
+      const outputs = context.steps[stepId]?.outputs
+      if (outputs === undefined) return ''
+      // Navigate nested path (e.g. "result.passed" → outputs.result.passed)
+      const parts = outputKey.split('.')
+      let value: unknown = outputs
+      for (const part of parts) {
+        if (value === undefined || value === null || typeof value !== 'object') return ''
+        value = (value as Record<string, unknown>)[part]
+      }
       return value !== undefined ? value : ''
     }
     return ''
@@ -224,7 +232,7 @@ export function interpolateString(
   let result = str
 
   for (const expr of expressions) {
-    const value = resolveValue(expr, context)
+    const value = resolveValueWithFallback(expr, context)
     const replacement = coerceToString(value)
     const pattern = new RegExp(
       `\\$\\{\\{\\s*${escapeRegex(expr)}\\s*\\}\\}`,
@@ -241,5 +249,148 @@ export function interpolateString(
  */
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Resolve a value expression with || (logical OR / default value) support.
+ * Returns the first truthy value, or the last value if all are falsy.
+ * Example: "trigger.payload.mode || 'heuristic'" → value of mode, or 'heuristic' if empty/undefined
+ */
+function resolveValueWithFallback(expr: string, context: ExpressionContext): unknown {
+  // Split on || (but not inside quotes)
+  const parts = splitOnOperator(expr, '||')
+  if (parts.length === 1) {
+    return resolveValue(parts[0]!.trim(), context)
+  }
+
+  // Return first truthy value, or last value
+  for (let i = 0; i < parts.length; i++) {
+    const value = resolveValue(parts[i]!.trim(), context)
+    // Truthy check: non-empty string, non-zero number, non-false boolean, non-null object
+    if (isTruthy(value)) {
+      return value
+    }
+    // Last part — return even if falsy
+    if (i === parts.length - 1) {
+      return value
+    }
+  }
+
+  return ''
+}
+
+/**
+ * Split expression string on an operator, respecting quoted strings.
+ * Example: "a || 'hello || world'" → ["a ", " 'hello || world'"]
+ */
+function splitOnOperator(expr: string, op: string): string[] {
+  const parts: string[] = []
+  let current = ''
+  let inSingle = false
+  let inDouble = false
+  let i = 0
+
+  while (i < expr.length) {
+    const ch = expr[i]!
+
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle
+      current += ch
+      i++
+    } else if (ch === '"' && !inSingle) {
+      inDouble = !inDouble
+      current += ch
+      i++
+    } else if (!inSingle && !inDouble && expr.slice(i, i + op.length) === op) {
+      parts.push(current)
+      current = ''
+      i += op.length
+    } else {
+      current += ch
+      i++
+    }
+  }
+
+  parts.push(current)
+  return parts
+}
+
+/**
+ * Check if a resolved value is "truthy" for || operator purposes.
+ * Empty string, null, undefined, false, 0 are falsy.
+ */
+function isTruthy(value: unknown): boolean {
+  if (value === '' || value === null || value === undefined || value === false || value === 0) {
+    return false
+  }
+  return true
+}
+
+/**
+ * Resolve expression preserving types.
+ * If the string is exactly one `${{ expr }}` (no surrounding text),
+ * returns the raw value (object, number, boolean, etc.).
+ * Supports || operator for default values: `${{ a || 'default' }}`
+ * Otherwise delegates to interpolateString (returns string).
+ */
+export function resolveExpression(
+  str: string,
+  context: ExpressionContext,
+): unknown {
+  const trimmed = str.trim()
+
+  // Check if the entire string is a single expression
+  const singleExprMatch = trimmed.match(/^\$\{\{\s*([^}]+)\s*\}\}$/)
+  if (singleExprMatch && singleExprMatch[1]) {
+    return resolveValueWithFallback(singleExprMatch[1].trim(), context)
+  }
+
+  // Multiple expressions or text around them — interpolate as string
+  if (trimmed.includes('${{')) {
+    return interpolateString(trimmed, context)
+  }
+
+  // No expressions — return as-is
+  return str
+}
+
+/**
+ * Recursively interpolate all string values in an object/array.
+ * - Strings: resolved via resolveExpression (type-preserving)
+ * - Arrays: each element interpolated recursively
+ * - Objects: each value interpolated recursively
+ * - Primitives (number, boolean, null): returned as-is
+ */
+export function interpolateObject(
+  obj: Record<string, unknown>,
+  context: ExpressionContext,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+
+  for (const [key, value] of Object.entries(obj)) {
+    result[key] = interpolateValue(value, context)
+  }
+
+  return result
+}
+
+/**
+ * Interpolate a single value recursively
+ */
+function interpolateValue(value: unknown, context: ExpressionContext): unknown {
+  if (typeof value === 'string') {
+    return resolveExpression(value, context)
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => interpolateValue(item, context))
+  }
+
+  if (value !== null && typeof value === 'object') {
+    return interpolateObject(value as Record<string, unknown>, context)
+  }
+
+  // number, boolean, null, undefined — pass through
+  return value
 }
 

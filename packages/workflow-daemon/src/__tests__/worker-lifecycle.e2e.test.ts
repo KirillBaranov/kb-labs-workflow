@@ -1,34 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import path from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { initPlatform, platform, resetPlatform } from '@kb-labs/core-runtime';
+
+// Mock SandboxRunner — worker tests verify orchestration, not plugin resolution.
+// SandboxRunner is tested separately in workflow-runtime.
+const mockRunnerExecute = vi.fn();
+
+vi.mock('@kb-labs/workflow-runtime', () => ({
+  SandboxRunner: vi.fn().mockImplementation(() => ({
+    execute: mockRunnerExecute,
+  })),
+}));
+
 import { createWorkflowWorker } from '../worker.js';
-
-const executeMock = vi.fn(async () => ({
-  ok: true,
-  data: { ok: true },
-  executionTimeMs: 1,
-}));
-const shutdownMock = vi.fn(async () => undefined);
-const createExecutionBackendMock = vi.fn(() => ({
-  execute: executeMock,
-  shutdown: shutdownMock,
-}));
-
-vi.mock('@kb-labs/plugin-execution-factory', () => ({
-  createExecutionBackend: createExecutionBackendMock,
-}));
-
-function hasDocker(): boolean {
-  try {
-    execFileSync('docker', ['version'], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -40,181 +22,242 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
-describe('workflow worker lifecycle e2e', () => {
-  let sandboxDir: string;
-
-  beforeEach(async () => {
-    resetPlatform();
-    executeMock.mockClear();
-    shutdownMock.mockClear();
-    createExecutionBackendMock.mockClear();
-    sandboxDir = await mkdtemp(path.join(tmpdir(), 'kb-workflow-worker-e2e-'));
+describe('workflow worker lifecycle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRunnerExecute.mockResolvedValue({ status: 'success', outputs: { ok: true } });
   });
 
-  afterEach(async () => {
-    try {
-      await platform.shutdown();
-    } catch {
-      // Best-effort shutdown in tests.
-    }
-    await rm(sandboxDir, { recursive: true, force: true });
-    resetPlatform();
-  });
-
-  it.skipIf(!hasDocker())(
-    'creates and cleans environment/workspace for strict isolation without adapter-specific assertions',
-    async () => {
-      const workspaceRoot = path.resolve(process.cwd(), '../../..');
-      const originalProcessSend = (process as any).send;
-      (process as any).send = undefined;
-
-      try {
-        await initPlatform(
-          {
-            adapters: {
-              db: '@kb-labs/adapters-sqlite',
-              environment: '@kb-labs/adapters-environment-docker',
-              workspace: '@kb-labs/adapters-workspace-localfs',
-            } as any,
-            adapterOptions: {
-              db: { filename: ':memory:' },
-              environment: {
-                defaultImage: 'node:20-alpine',
-                autoRemove: true,
-                mountWorkspace: false,
-                defaultTtlMs: 5 * 60 * 1000,
-              },
-              workspace: {
-                rootDir: path.join(sandboxDir, 'workspaces'),
-                registryDir: path.join(sandboxDir, 'workspace-registry'),
-                workspace: { cwd: workspaceRoot },
-              },
-            } as any,
-            execution: {
-              mode: 'in-process',
-            },
-          },
-          workspaceRoot
-        );
-      } finally {
-        (process as any).send = originalProcessSend;
-      }
-
-      const runId = `run-${Date.now().toString(36)}`;
-      const jobId = `${runId}:job`;
-      const run: any = {
-        id: runId,
-        tenantId: 'default',
-        env: {},
-        metadata: { isolation: 'strict' },
-        jobs: [{
-          id: jobId,
-          jobName: 'job',
-          status: 'queued',
-          attempt: 0,
-          steps: [],
+  it('processes a job with steps and delegates execution to runner', async () => {
+    const runId = `run-${Date.now().toString(36)}`;
+    const jobId = `${runId}:job`;
+    const run: any = {
+      id: runId,
+      tenantId: 'default',
+      env: {},
+      metadata: {},
+      jobs: [{
+        id: jobId,
+        jobName: 'test-job',
+        status: 'queued',
+        attempt: 0,
+        steps: [{
+          id: 'step-1',
+          status: 'pending',
+          spec: { uses: 'plugin:test/handler', with: { key: 'value' } },
         }],
-      };
+      }],
+    };
 
-      const createdEnvironmentIds: string[] = [];
-      const destroyedEnvironmentIds: string[] = [];
-      const releasedWorkspaceIds: string[] = [];
-      const completion = createDeferred<void>();
+    const completion = createDeferred<void>();
 
-      const environmentManager = {
-        async create(request: any) {
-          const descriptor = await platform.environmentManager.createEnvironment(request);
-          createdEnvironmentIds.push(descriptor.environmentId);
-          return { environmentId: descriptor.environmentId };
-        },
-        async destroy(environmentId: string, reason?: string) {
-          destroyedEnvironmentIds.push(environmentId);
-          await platform.environmentManager.destroyEnvironment(environmentId, reason);
-        },
-      };
+    let queueDrained = false;
+    const engine: any = {
+      async nextJob() {
+        if (queueDrained) return null;
+        queueDrained = true;
+        return { runId, jobId };
+      },
+      async getRun(requestedRunId: string) {
+        return requestedRunId === runId ? run : null;
+      },
+      async markJobStarted() {
+        run.jobs[0].status = 'running';
+      },
+      async markJobCompleted() {
+        run.jobs[0].status = 'success';
+        completion.resolve();
+      },
+      async markJobFailed(_r: string, _j: string, error: Error) {
+        completion.reject(error);
+      },
+      async markStepStarted() {},
+      async markStepCompleted() {},
+      async markStepFailed() {},
+      async markJobInterrupted() {},
+    };
 
-      const workspaceManager = {
-        async materialize(request: any) {
-          const descriptor = await platform.workspaceManager.materializeWorkspace(request);
-          return {
-            workspaceId: descriptor.workspaceId,
-            rootPath: descriptor.rootPath,
-          };
-        },
-        async attach(request: { workspaceId: string; environmentId: string }) {
-          return platform.workspaceManager.attachWorkspace(request);
-        },
-        async release(workspaceId: string, environmentId?: string) {
-          releasedWorkspaceIds.push(workspaceId);
-          await platform.workspaceManager.releaseWorkspace(workspaceId, environmentId);
-        },
-      };
+    const logger = {
+      info: vi.fn(),
+      debug: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      child: vi.fn(() => logger),
+    };
 
-      let queueDrained = false;
-      const engine: any = {
-        async nextJob() {
-          if (queueDrained) {
-            return null;
-          }
-          queueDrained = true;
-          return { runId, jobId };
-        },
-        async getRun(requestedRunId: string) {
-          return requestedRunId === runId ? run : null;
-        },
-        async markJobStarted() {
-          run.jobs[0].status = 'running';
-        },
-        async markJobCompleted() {
-          run.jobs[0].status = 'success';
-          completion.resolve();
-        },
-        async markJobFailed(_r: string, _j: string, error: Error) {
-          completion.reject(error);
-        },
-        async markStepStarted() {},
-        async markStepCompleted() {},
-        async markStepFailed() {},
-        async markJobInterrupted() {},
-      };
+    const worker = await createWorkflowWorker({
+      engine,
+      cliApi: {} as any,
+      logger: logger as any,
+      workspaceRoot: '/tmp/test-workspace',
+      platform: {
+        executionBackend: { execute: vi.fn() } as any,
+        hasExecutionBackend: true,
+      },
+      concurrency: 1,
+    });
 
-      const worker = await createWorkflowWorker({
-        engine,
-        executionBackend: {} as any,
-        cliApi: {} as any,
-        logger: platform.logger,
-        workspaceRoot,
-        platform: {
-          getAdapter<T>(key: string): T | undefined {
-            if (key === 'environment') {
-              return environmentManager as T;
-            }
-            if (key === 'workspace') {
-              return workspaceManager as T;
-            }
-            return undefined;
-          },
-        },
-        concurrency: 1,
-      });
+    const startPromise = worker.start();
+    await Promise.race([
+      completion.promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('worker completion timeout')), 10_000)),
+    ]);
+    await worker.stop();
+    await startPromise;
 
-      const startPromise = worker.start();
-      await Promise.race([
-        completion.promise,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('worker completion timeout')), 20_000)),
-      ]);
-      await worker.stop();
-      await startPromise;
+    expect(run.jobs[0].status).toBe('success');
+    expect(mockRunnerExecute).toHaveBeenCalledOnce();
+    // Verify runner received the step spec and context
+    const call = mockRunnerExecute.mock.calls[0][0];
+    expect(call.spec).toEqual({ uses: 'plugin:test/handler', with: { key: 'value' } });
+    expect(call.workspace).toBe('/tmp/test-workspace');
+  });
 
-      expect(run.jobs[0].status).toBe('success');
-      expect(createdEnvironmentIds.length).toBe(1);
-      expect(destroyedEnvironmentIds).toEqual(createdEnvironmentIds);
-      expect(releasedWorkspaceIds.length).toBe(1);
+  it('passes target hint from workflow spec to runner', async () => {
+    const runId = `run-target-${Date.now().toString(36)}`;
+    const jobId = `${runId}:job`;
+    const run: any = {
+      id: runId,
+      tenantId: 'default',
+      env: {},
+      metadata: {
+        target: { namespace: 'custom-ns', environmentId: 'pre-provisioned-env' },
+      },
+      jobs: [{
+        id: jobId,
+        jobName: 'test-job',
+        status: 'queued',
+        attempt: 0,
+        target: undefined,
+        steps: [{
+          id: 'step-1',
+          status: 'pending',
+          spec: { uses: 'plugin:test/handler' },
+        }],
+      }],
+    };
 
-      const createdEnvironmentId = createdEnvironmentIds[0];
-      expect(createdEnvironmentId).toBeDefined();
-      const finalEnvironmentStatus = await platform.environmentManager.getEnvironmentStatus(createdEnvironmentId as string);
-      expect(finalEnvironmentStatus.status).toBe('terminated');
-    }
-  );
+    const completion = createDeferred<void>();
+
+    let queueDrained = false;
+    const engine: any = {
+      async nextJob() {
+        if (queueDrained) return null;
+        queueDrained = true;
+        return { runId, jobId };
+      },
+      async getRun(id: string) { return id === runId ? run : null; },
+      async markJobStarted() { run.jobs[0].status = 'running'; },
+      async markJobCompleted() {
+        run.jobs[0].status = 'success';
+        completion.resolve();
+      },
+      async markJobFailed(_r: string, _j: string, error: Error) { completion.reject(error); },
+      async markStepStarted() {},
+      async markStepCompleted() {},
+      async markStepFailed() {},
+      async markJobInterrupted() {},
+    };
+
+    const logger = {
+      info: vi.fn(),
+      debug: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      child: vi.fn(() => logger),
+    };
+
+    const worker = await createWorkflowWorker({
+      engine,
+      cliApi: {} as any,
+      logger: logger as any,
+      workspaceRoot: '/tmp/test-workspace',
+      platform: {
+        executionBackend: { execute: vi.fn() } as any,
+        hasExecutionBackend: true,
+      },
+      concurrency: 1,
+    });
+
+    const startPromise = worker.start();
+    await Promise.race([
+      completion.promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10_000)),
+    ]);
+    await worker.stop();
+    await startPromise;
+
+    expect(run.jobs[0].status).toBe('success');
+    // Worker should pass target from run.metadata to runner.execute()
+    const call = mockRunnerExecute.mock.calls[0][0];
+    expect(call.target).toEqual({ namespace: 'custom-ns', environmentId: 'pre-provisioned-env' });
+  });
+
+  it('worker does not call any adapters directly', async () => {
+    const runId = `run-no-adapters-${Date.now().toString(36)}`;
+    const jobId = `${runId}:job`;
+    const run: any = {
+      id: runId,
+      env: {},
+      metadata: {},
+      jobs: [{
+        id: jobId,
+        jobName: 'job',
+        status: 'queued',
+        attempt: 0,
+        steps: [],
+      }],
+    };
+
+    const completion = createDeferred<void>();
+
+    let queueDrained = false;
+    const engine: any = {
+      async nextJob() {
+        if (queueDrained) return null;
+        queueDrained = true;
+        return { runId, jobId };
+      },
+      async getRun(id: string) { return id === runId ? run : null; },
+      async markJobStarted() { run.jobs[0].status = 'running'; },
+      async markJobCompleted() { run.jobs[0].status = 'success'; completion.resolve(); },
+      async markJobFailed(_r: string, _j: string, error: Error) { completion.reject(error); },
+      async markStepStarted() {},
+      async markStepCompleted() {},
+      async markStepFailed() {},
+      async markJobInterrupted() {},
+    };
+
+    const logger = {
+      info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn(),
+      child: vi.fn(() => logger),
+    };
+
+    // Platform has NO getAdapter — worker should NOT call it
+    const platformObj = {
+      executionBackend: { execute: vi.fn() } as any,
+      hasExecutionBackend: true,
+    };
+
+    const worker = await createWorkflowWorker({
+      engine,
+      cliApi: {} as any,
+      logger: logger as any,
+      workspaceRoot: '/tmp/test',
+      platform: platformObj,
+      concurrency: 1,
+    });
+
+    const startPromise = worker.start();
+    await Promise.race([
+      completion.promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10_000)),
+    ]);
+    await worker.stop();
+    await startPromise;
+
+    expect(run.jobs[0].status).toBe('success');
+    // Verify: no getAdapter exists — if worker tried to call it, it would crash
+    expect((platformObj as any).getAdapter).toBeUndefined();
+  });
 });

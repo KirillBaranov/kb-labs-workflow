@@ -3,9 +3,7 @@
  * Bootstrap workflow daemon - initialize platform, engine, worker, and HTTP server
  */
 
-import { loadEnvFile } from './env-loader.js';
-import { initializePlatform } from './platform.js';
-import { platform } from '@kb-labs/core-runtime';
+import { platform, createServiceBootstrap } from '@kb-labs/core-runtime';
 import { WorkflowEngine, WorkflowService } from '@kb-labs/workflow-engine';
 import { createWorkflowWorker } from './worker.js';
 import { JobBroker } from './job-broker.js';
@@ -13,7 +11,7 @@ import { CronScheduler } from './cron-scheduler.js';
 import { CronDiscovery } from './cron-discovery.js';
 import { createServer } from './server.js';
 import { createCliAPI } from '@kb-labs/cli-api';
-import { findRepoRoot } from '@kb-labs/core-sys';
+import { findRepoRoot, discoverSubRepoPaths } from '@kb-labs/core-sys';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
@@ -33,19 +31,8 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   // Detect repo root first
   const repoRoot = await findRepoRoot(cwd);
 
-  // Load .env file from repo root (not cwd)
-  loadEnvFile(repoRoot);
-
-  // Initialize platform adapters from kb.config.json
-  await initializePlatform(repoRoot);
-
-  // Validate required adapters are available BEFORE creating any resources.
-  // Use stderr since platform.logger might not be configured yet.
-  if (!platform.executionBackend) {
-    process.stderr.write('[workflow-daemon] FATAL: ExecutionBackend not configured.\n');
-    process.stderr.write('[workflow-daemon] Set platform.adapters.executionBackend in kb.config.json.\n');
-    throw new Error('ExecutionBackend is required for workflow daemon. Check platform configuration.');
-  }
+  // Initialize platform (loads .env + adapters from kb.config.json)
+  await createServiceBootstrap({ appId: 'workflow-daemon', repoRoot });
 
   if (!platform.isConfigured('workspace')) {
     // Not fatal — workflows with explicit isolation: relaxed will still work.
@@ -86,25 +73,13 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   // Initialize CLI API for plugin discovery
   bootstrapLogger.info('Initializing CLI API for plugin discovery');
 
-  // Collect all kb-labs-* directories as roots for discovery (same as REST API)
-  const discoveryRoots = [repoRoot];
-  try {
-    const entries = await fs.readdir(repoRoot, { withFileTypes: true });
-    for (const entry of entries) {
-      if (entry.isDirectory() && entry.name.startsWith('kb-labs-')) {
-        const repoPath = path.join(repoRoot, entry.name);
-        discoveryRoots.push(repoPath);
-      }
-    }
-    bootstrapLogger.info('Discovery roots configured', {
-      roots: discoveryRoots,
-      rootsCount: discoveryRoots.length,
-    });
-  } catch (error) {
-    bootstrapLogger.warn('Failed to collect discovery roots', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  // Collect all sub-repo paths for plugin discovery.
+  // Uses .gitmodules for accurate nested layout — no hardcoded category dirs.
+  const discoveryRoots = [repoRoot, ...discoverSubRepoPaths(repoRoot)];
+  bootstrapLogger.info('Discovery roots configured', {
+    roots: discoveryRoots,
+    rootsCount: discoveryRoots.length,
+  });
 
   const cliApi = await createCliAPI({
     discovery: {
@@ -132,17 +107,18 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
     pluginIds: plugins.map(p => `${p.id}@${p.version}`),
   });
 
-  // Create WorkflowEngine with ExecutionBackend
   bootstrapLogger.info('Creating WorkflowEngine');
   const engine = new WorkflowEngine({
     cache: platform.cache,
     events: platform.eventBus,
     logger: platform.logger,
-    // Cast to any - IExecutionBackend doesn't have health/stats but that's okay
-    executionBackend: platform.executionBackend as any,
     snapshotManager: (platform as any).snapshotManager,
-    workspaceRoot: repoRoot, // Pass monorepo root for plugin execution context
+    workspaceRoot: repoRoot,
   });
+
+  // Mark stale running/queued runs as failed (they're orphaned from previous process)
+  bootstrapLogger.info('Cleaning up stale runs from previous daemon process');
+  await engine.cleanupStaleRuns();
 
   // Resume interrupted jobs from previous shutdown
   bootstrapLogger.info('Resuming interrupted jobs');
@@ -207,7 +183,6 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   bootstrapLogger.info('Creating WorkflowWorker');
   const worker = await createWorkflowWorker({
     engine,
-    executionBackend: platform.executionBackend as any, // Cast - IExecutionBackend missing health/stats
     cliApi,
     logger: platform.logger,
     analytics: platform.analytics,
