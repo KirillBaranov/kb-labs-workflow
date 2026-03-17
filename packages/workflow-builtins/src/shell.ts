@@ -25,7 +25,6 @@ const BLOCKED_COMMANDS = [
   'chown -R',
   '> /dev/sda',
   'mv /* ',
-  'format',
   'fdisk',
 ];
 
