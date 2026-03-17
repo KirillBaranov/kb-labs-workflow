@@ -75,15 +75,49 @@ export interface ShellOutput {
 }
 
 /**
- * If stdout is valid JSON, merge its keys into the output object.
- * This enables structured data flow between workflow steps:
- * e.g. echo '{"passed": true}' → steps.X.outputs.passed
+ * Output marker prefix. Shell commands emit structured outputs via:
+ *   echo '::kb-output::{"passed":true}'
+ *
+ * This separates logs (plain stdout) from structured data (outputs).
+ * Similar to GitHub Actions ::set-output:: pattern.
+ */
+const OUTPUT_MARKER = '::kb-output::';
+
+/**
+ * Extract structured outputs from shell stdout.
+ *
+ * Priority:
+ * 1. ::kb-output::{...} marker lines — explicit, recommended
+ * 2. Entire stdout as JSON — fallback for backward compat (simple commands)
+ *
+ * Logs and other stdout content are ignored for output purposes.
  */
 function mergeJsonOutputs(output: ShellOutput): Record<string, unknown> {
   const base: Record<string, unknown> = { ...output };
   const trimmed = output.stdout.trim();
   if (!trimmed) {return base;}
 
+  // Priority 1: Look for ::kb-output:: marker lines
+  const lines = output.stdout.split('\n');
+  let foundMarker = false;
+  for (const line of lines) {
+    const idx = line.indexOf(OUTPUT_MARKER);
+    if (idx !== -1) {
+      foundMarker = true;
+      try {
+        const parsed = JSON.parse(line.slice(idx + OUTPUT_MARKER.length));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          Object.assign(base, parsed);
+        }
+      } catch {
+        // Malformed marker — skip
+      }
+    }
+  }
+
+  if (foundMarker) {return base;}
+
+  // Priority 2: Fallback — entire stdout as JSON (backward compat)
   try {
     const parsed = JSON.parse(trimmed);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
