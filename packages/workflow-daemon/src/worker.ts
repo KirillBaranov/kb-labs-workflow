@@ -532,6 +532,19 @@ export async function createWorkflowWorker(
           durationMs: jobDuration,
           stepCount: job.steps.length,
         }).catch(() => {});
+
+        // Release workspace on success (cleanup worktree)
+        if (provisionedWorkspaceId && wsProvider) {
+          try {
+            await wsProvider.release(provisionedWorkspaceId);
+            jobLogger.info('Workspace released', { workspaceId: provisionedWorkspaceId });
+          } catch (releaseErr) {
+            jobLogger.warn('Workspace release failed', {
+              workspaceId: provisionedWorkspaceId,
+              error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+            });
+          }
+        }
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         const jobDuration = Date.now() - jobStartTime;
@@ -546,20 +559,15 @@ export async function createWorkflowWorker(
           errorMessage: err.message,
           durationMs: jobDuration,
         }).catch(() => {});
-      } finally {
-        // Release provisioned workspace (worktree cleanup)
-        if (provisionedWorkspaceId && wsProvider) {
-          try {
-            await wsProvider.release(provisionedWorkspaceId);
-            jobLogger.info('Workspace released', { workspaceId: provisionedWorkspaceId });
-          } catch (releaseErr) {
-            jobLogger.warn('Workspace release failed', {
-              workspaceId: provisionedWorkspaceId,
-              error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
-            });
-          }
-        }
 
+        // Keep workspace on failure for debugging
+        if (provisionedWorkspaceId) {
+          jobLogger.warn('Workspace kept for debugging', {
+            workspaceId: provisionedWorkspaceId,
+            path: runWorkspace,
+          });
+        }
+      } finally {
         // Remove from tracking
         runningJobs.delete(jobKey);
         claimedJobs.delete(jobKey);
