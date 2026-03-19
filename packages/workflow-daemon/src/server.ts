@@ -132,6 +132,7 @@ export async function createServer(options: CreateServerOptions) {
       server,
       hostService,
       engine,
+      workflowService,
       logger,
     });
   }

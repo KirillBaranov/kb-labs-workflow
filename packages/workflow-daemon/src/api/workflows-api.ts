@@ -6,7 +6,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ILogger } from '@kb-labs/core-platform';
 import type { WorkflowRunRequest } from '@kb-labs/workflow-contracts';
-import type { WorkflowEngine } from '@kb-labs/workflow-engine';
+import type { WorkflowEngine, WorkflowService } from '@kb-labs/workflow-engine';
 import type { WorkflowHostService } from '../host/workflow-host-service.js';
 import { fail, ok } from './response.js';
 
@@ -19,6 +19,7 @@ export interface RegisterWorkflowsAPIOptions {
   server: FastifyInstance;
   hostService: WorkflowHostService;
   engine: WorkflowEngine;
+  workflowService?: WorkflowService;
   logger: ILogger;
 }
 
@@ -32,7 +33,30 @@ export interface RegisterWorkflowsAPIOptions {
  * - POST /api/v1/workflows/:id/run - Run a workflow
  */
 export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void {
-  const { server, hostService, engine, logger } = options;
+  const { server, hostService, engine, workflowService, logger } = options;
+
+  // POST /api/v1/workflows/refresh - Reload workflow definitions from disk
+  server.post('/api/v1/workflows/refresh', async () => {
+    try {
+      logger.info('[workflows-api] Refreshing workflows from disk');
+
+      if (workflowService) {
+        await workflowService.refreshManifests();
+      }
+
+      const workflows = workflowService
+        ? await workflowService.listAll()
+        : [];
+
+      return ok({
+        workflowsLoaded: workflows.length,
+        workflowIds: workflows.map((w: any) => w.id),
+      });
+    } catch (error) {
+      logger.error('[workflows-api] Failed to refresh workflows', error instanceof Error ? error : undefined);
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
 
   // GET /api/v1/workflows - List all workflow definitions
   server.get<{
