@@ -9,7 +9,7 @@
 
 import type { WorkflowEngine } from '@kb-labs/workflow-engine';
 import type { CliAPI } from '@kb-labs/cli-api';
-import type { ILogger, IAnalytics } from '@kb-labs/core-platform';
+import type { ILogger, IAnalytics, IWorkspaceProvider } from '@kb-labs/core-platform';
 import type { IExecutionBackend } from '@kb-labs/core-contracts';
 import type { ExecutionTarget, ExpressionContext } from '@kb-labs/workflow-contracts';
 import {
@@ -23,6 +23,7 @@ import { SandboxRunner } from '@kb-labs/workflow-runtime';
 interface Platform {
   readonly executionBackend: IExecutionBackend;
   readonly hasExecutionBackend: boolean;
+  getAdapter?<T>(name: string): T | undefined;
 }
 
 export interface CreateWorkflowWorkerOptions {
@@ -159,6 +160,35 @@ export async function createWorkflowWorker(
     const runTarget = (run.metadata as Record<string, unknown> | undefined)?.target as ExecutionTarget | undefined;
     const jobTarget = job.target as ExecutionTarget | undefined;
     const target = jobTarget ?? runTarget;
+
+    // ── Workspace provisioning (worktree/container/remote) ──
+    // If platform has a workspace provider, create an isolated workspace for this run.
+    // All steps will execute in the provisioned workspace instead of the host workspace.
+    const wsProvider = platform.getAdapter?.<IWorkspaceProvider>('workspace');
+    let runWorkspace = workspaceRoot;
+    let provisionedWorkspaceId: string | undefined;
+
+    if (wsProvider) {
+      try {
+        const ws = await wsProvider.materialize({
+          sourceRef: 'main',
+          metadata: { runId: run.id, jobId: job.id },
+        });
+        if (ws.rootPath) {
+          runWorkspace = ws.rootPath;
+          provisionedWorkspaceId = ws.workspaceId;
+          jobLogger.info('Workspace provisioned', {
+            workspaceId: ws.workspaceId,
+            provider: ws.provider,
+            rootPath: ws.rootPath,
+          });
+        }
+      } catch (wsError) {
+        jobLogger.warn('Workspace provisioning failed, using host workspace', {
+          error: wsError instanceof Error ? wsError.message : String(wsError),
+        });
+      }
+    }
 
     // Create job execution promise for graceful shutdown tracking
     // eslint-disable-next-line sonarjs/cognitive-complexity -- Step execution loop: handles data flow, spec.if, builtin:approval polling, builtin:gate routing with restart-from
@@ -450,7 +480,7 @@ export async function createWorkflowWorker(
                 void engine.publishLog(run.id, job.id, step.id, entry);
               },
             },
-            workspace: workspaceRoot,
+            workspace: runWorkspace,
             target,
           });
 
@@ -511,6 +541,19 @@ export async function createWorkflowWorker(
           durationMs: jobDuration,
         }).catch(() => {});
       } finally {
+        // Release provisioned workspace (worktree cleanup)
+        if (provisionedWorkspaceId && wsProvider) {
+          try {
+            await wsProvider.release(provisionedWorkspaceId);
+            jobLogger.info('Workspace released', { workspaceId: provisionedWorkspaceId });
+          } catch (releaseErr) {
+            jobLogger.warn('Workspace release failed', {
+              workspaceId: provisionedWorkspaceId,
+              error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+            });
+          }
+        }
+
         // Remove from tracking
         runningJobs.delete(jobKey);
         claimedJobs.delete(jobKey);
