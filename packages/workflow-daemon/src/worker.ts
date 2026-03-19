@@ -184,9 +184,9 @@ export async function createWorkflowWorker(
           });
         }
       } catch (wsError) {
-        jobLogger.warn('Workspace provisioning failed, using host workspace', {
-          error: wsError instanceof Error ? wsError.message : String(wsError),
-        });
+        const msg = wsError instanceof Error ? wsError.message : String(wsError);
+        jobLogger.error(`Workspace provisioning failed: ${msg}`);
+        throw new Error(`Workspace provisioning failed: ${msg}`);
       }
     }
 
