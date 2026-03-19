@@ -173,6 +173,12 @@ export async function createWorkflowWorker(
         const ws = await wsProvider.materialize({
           sourceRef: 'main',
           metadata: { runId: run.id, jobId: job.id },
+          onProgress: (event) => {
+            jobLogger.info(`[workspace] ${event.stage}: ${event.message}`, {
+              stage: event.stage,
+              progress: event.progress,
+            });
+          },
         });
         if (ws.rootPath) {
           runWorkspace = ws.rootPath;
