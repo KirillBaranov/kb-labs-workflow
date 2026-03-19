@@ -170,7 +170,10 @@ export async function createWorkflowWorker(
 
     if (wsProvider) {
       try {
+        // Deterministic workspaceId per run — retries reuse the same worktree
+        const wsId = `wt_${run.id.slice(0, 8)}`;
         const ws = await wsProvider.materialize({
+          workspaceId: wsId,
           sourceRef: 'main',
           metadata: { runId: run.id, jobId: job.id },
           onProgress: (event) => {
