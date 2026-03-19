@@ -23,7 +23,7 @@ import { SandboxRunner } from '@kb-labs/workflow-runtime';
 interface Platform {
   readonly executionBackend: IExecutionBackend;
   readonly hasExecutionBackend: boolean;
-  getAdapter?<T>(name: string): T | undefined;
+  getAdapter<T = unknown>(name: string): T | undefined;
 }
 
 export interface CreateWorkflowWorkerOptions {
@@ -164,7 +164,7 @@ export async function createWorkflowWorker(
     // ── Workspace provisioning (worktree/container/remote) ──
     // If platform has a workspace provider, create an isolated workspace for this run.
     // All steps will execute in the provisioned workspace instead of the host workspace.
-    const wsProvider = platform.getAdapter?.<IWorkspaceProvider>('workspace');
+    const wsProvider = platform.getAdapter<IWorkspaceProvider>('workspace');
     let runWorkspace = workspaceRoot;
     let provisionedWorkspaceId: string | undefined;
 
