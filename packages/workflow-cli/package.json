@@ -36,12 +36,12 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@kb-labs/core-platform": "workspace:*",
-    "@kb-labs/sdk": "workspace:*",
+    "@kb-labs/core-platform": "link:../../../kb-labs-core/packages/core-platform",
+    "@kb-labs/sdk": "link:../../../kb-labs-sdk/packages/sdk",
     "@kb-labs/workflow-contracts": "workspace:*"
   },
   "devDependencies": {
-    "@kb-labs/devkit": "workspace:*",
+    "@kb-labs/devkit": "link:../../../../infra/kb-labs-devkit",
     "@types/node": "^24.3.3",
     "rimraf": "^6.0.1",
     "tsup": "^8.5.0",
