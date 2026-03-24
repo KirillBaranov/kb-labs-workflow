@@ -2,7 +2,6 @@
   "name": "@kb-labs/workflow-cli",
   "version": "1.0.0",
   "type": "module",
-  "private": true,
   "description": "CLI commands for KB Labs Workflow Daemon - interact with workflow daemon via HTTP API.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
