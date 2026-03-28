@@ -36,7 +36,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   const { server, hostService, engine, workflowService, logger } = options;
 
   // POST /api/v1/workflows/refresh - Reload workflow definitions from disk
-  server.post('/api/v1/workflows/refresh', async () => {
+  server.post('/api/v1/workflows/refresh', { schema: { tags: ['Workflows'], summary: 'Reload workflow definitions from disk' } }, async () => {
     try {
       logger.info('[workflows-api] Refreshing workflows from disk');
 
@@ -65,7 +65,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
       status?: 'active' | 'inactive';
       tags?: string;
     };
-  }>('/api/v1/workflows', async (request, reply) => {
+  }>('/api/v1/workflows', { schema: { tags: ['Workflows'], summary: 'List workflow definitions' } }, async (request, reply) => {
     try {
       const response = await hostService.listWorkflows(request.query);
       return ok(response);
@@ -78,7 +78,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   // GET /api/v1/workflows/:id - Get workflow definition details
   server.get<{
     Params: { id: string };
-  }>('/api/v1/workflows/:id', async (request, reply) => {
+  }>('/api/v1/workflows/:id', { schema: { tags: ['Workflows'], summary: 'Get workflow definition' } }, async (request, reply) => {
     try {
       const { id } = request.params;
       const workflow = await hostService.getWorkflow(id);
@@ -96,7 +96,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   server.get<{
     Params: { id: string };
     Querystring: { limit?: string; offset?: string; status?: string };
-  }>('/api/v1/workflows/:id/runs', async (request, reply) => {
+  }>('/api/v1/workflows/:id/runs', { schema: { tags: ['Workflows'], summary: 'List runs for a workflow' } }, async (request, reply) => {
     try {
       const { id } = request.params;
       const { limit, offset, status } = request.query;
@@ -116,7 +116,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   server.post<{
     Params: { id: string };
     Body: WorkflowRunRequest;
-  }>('/api/v1/workflows/:id/run', async (request, reply) => {
+  }>('/api/v1/workflows/:id/run', { schema: { tags: ['Workflows'], summary: 'Run a workflow' } }, async (request, reply) => {
     try {
       const { id } = request.params;
       const response = await hostService.runWorkflow(id, request.body || {});
@@ -134,7 +134,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   // POST /api/v1/workflows/runs/:runId/cancel - Cancel a running workflow run
   server.post<{
     Params: { runId: string };
-  }>('/api/v1/workflows/runs/:runId/cancel', async (request, reply) => {
+  }>('/api/v1/workflows/runs/:runId/cancel', { schema: { tags: ['Workflows'], summary: 'Cancel a workflow run' } }, async (request, reply) => {
     try {
       const { runId } = request.params;
       await hostService.cancelRun(runId);
@@ -155,7 +155,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   // GET /api/v1/runs - List all workflow runs (across all workflows)
   server.get<{
     Querystring: { status?: string; limit?: string; offset?: string };
-  }>('/api/v1/runs', async (request, reply) => {
+  }>('/api/v1/runs', { schema: { tags: ['Runs'], summary: 'List all workflow runs' } }, async (request, reply) => {
     try {
       const { status, limit, offset } = request.query;
       const response = await hostService.listRuns({
@@ -173,7 +173,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   // GET /api/v1/runs/:runId - Get a specific workflow run
   server.get<{
     Params: { runId: string };
-  }>('/api/v1/runs/:runId', async (request, reply) => {
+  }>('/api/v1/runs/:runId', { schema: { tags: ['Runs'], summary: 'Get a workflow run' } }, async (request, reply) => {
     try {
       const { runId } = request.params;
       const run = await hostService.getRun(runId);
@@ -188,9 +188,10 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   });
 
   // GET /api/v1/workflows/runs/:runId/events — SSE stream of run events
+  // hide: true — SSE uses raw socket hijack, incompatible with OpenAPI response schema
   server.get<{
     Params: { runId: string };
-  }>('/api/v1/workflows/runs/:runId/events', async (request, reply) => {
+  }>('/api/v1/workflows/runs/:runId/events', { schema: { hide: true } }, async (request, reply) => {
     const { runId } = request.params;
 
     const run = await engine.getRun(runId);

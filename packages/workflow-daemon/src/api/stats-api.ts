@@ -20,7 +20,7 @@ export interface StatsAPIOptions {
 export function registerStatsAPI(options: StatsAPIOptions): void {
   const { server, hostService, cronScheduler } = options;
 
-  server.get('/api/v1/stats', async (_request, _reply) => {
+  server.get('/api/v1/stats', { schema: { tags: ['Stats'], summary: 'Get dashboard statistics' } }, async (_request, _reply) => {
     const tenantId = 'default';
 
     // Jobs — all statuses

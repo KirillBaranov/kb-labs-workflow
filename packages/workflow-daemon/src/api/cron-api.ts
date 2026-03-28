@@ -136,10 +136,10 @@ export function registerCronAPI(options: CronAPIOptions): void {
   };
 
   // Canonical v1 routes
-  server.post<{ Body: CronRegistrationRequest }>('/api/v1/cron', registerCronHandler as any);
-  server.get('/api/v1/cron', listCronHandler as any);
-  server.delete<{ Params: CronIdParams }>('/api/v1/cron/:id', unregisterCronHandler as any);
-  server.post<{ Params: CronIdParams }>('/api/v1/cron/:id/trigger', triggerCronHandler as any);
-  server.post<{ Params: CronIdParams }>('/api/v1/cron/:id/pause', pauseCronHandler as any);
-  server.post<{ Params: CronIdParams }>('/api/v1/cron/:id/resume', resumeCronHandler as any);
+  server.post<{ Body: CronRegistrationRequest }>('/api/v1/cron', { schema: { tags: ['Cron'], summary: 'Register a cron job' } }, registerCronHandler as any);
+  server.get('/api/v1/cron', { schema: { tags: ['Cron'], summary: 'List cron jobs' } }, listCronHandler as any);
+  server.delete<{ Params: CronIdParams }>('/api/v1/cron/:id', { schema: { tags: ['Cron'], summary: 'Unregister a cron job' } }, unregisterCronHandler as any);
+  server.post<{ Params: CronIdParams }>('/api/v1/cron/:id/trigger', { schema: { tags: ['Cron'], summary: 'Trigger a cron job immediately' } }, triggerCronHandler as any);
+  server.post<{ Params: CronIdParams }>('/api/v1/cron/:id/pause', { schema: { tags: ['Cron'], summary: 'Pause a cron job' } }, pauseCronHandler as any);
+  server.post<{ Params: CronIdParams }>('/api/v1/cron/:id/resume', { schema: { tags: ['Cron'], summary: 'Resume a cron job' } }, resumeCronHandler as any);
 }

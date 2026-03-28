@@ -30,6 +30,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
    */
   server.post<{ Body: JobSubmissionRequest }>(
     '/api/v1/jobs',
+    { schema: { tags: ['Jobs'], summary: 'Submit a new job' } },
     async (request, reply) => {
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
 
@@ -54,6 +55,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
    */
   server.get<{ Params: { jobId: string } }>(
     '/api/v1/jobs/:jobId',
+    { schema: { tags: ['Jobs'], summary: 'Get job status' } },
     async (request, reply) => {
       const { jobId } = request.params;
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
@@ -78,6 +80,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
    */
   server.post<{ Params: { jobId: string } }>(
     '/api/v1/jobs/:jobId/cancel',
+    { schema: { tags: ['Jobs'], summary: 'Cancel a job' } },
     async (request, reply) => {
       const { jobId } = request.params;
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
@@ -98,6 +101,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
    */
   server.get<{ Querystring: JobListFilter }>(
     '/api/v1/jobs',
+    { schema: { tags: ['Jobs'], summary: 'List jobs' } },
     async (request, reply) => {
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
       const filter = request.query;
@@ -113,6 +117,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
   );
   server.get<{ Params: { jobId: string } }>(
     '/api/v1/jobs/:jobId/steps',
+    { schema: { tags: ['Jobs'], summary: 'Get job steps' } },
     async (request, reply) => {
       const { jobId } = request.params;
       try {
@@ -130,6 +135,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
 
   server.get<{ Params: { jobId: string } }>(
     '/api/v1/jobs/:jobId/logs',
+    { schema: { tags: ['Jobs'], summary: 'Get job logs' } },
     async (request, reply) => {
       const { jobId } = request.params;
       const limit =

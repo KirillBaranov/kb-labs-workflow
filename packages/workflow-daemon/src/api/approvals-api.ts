@@ -31,7 +31,7 @@ export function registerApprovalsAPI(options: ApprovalsAPIOptions): void {
   // GET /api/v1/runs/:runId/pending-approvals
   server.get<{
     Params: { runId: string };
-  }>('/api/v1/runs/:runId/pending-approvals', async (request, reply) => {
+  }>('/api/v1/runs/:runId/pending-approvals', { schema: { tags: ['Approvals'], summary: 'List pending approvals for a run' } }, async (request, reply) => {
     try {
       const { runId } = request.params;
       const run = await engine.getRun(runId);
@@ -81,7 +81,7 @@ export function registerApprovalsAPI(options: ApprovalsAPIOptions): void {
       comment?: string;
       data?: Record<string, unknown>;
     };
-  }>('/api/v1/runs/:runId/approve', async (request, reply) => {
+  }>('/api/v1/runs/:runId/approve', { schema: { tags: ['Approvals'], summary: 'Approve or reject a pending step' } }, async (request, reply) => {
     try {
       const { runId } = request.params;
       const { jobId, stepId, action, comment, data } = request.body;

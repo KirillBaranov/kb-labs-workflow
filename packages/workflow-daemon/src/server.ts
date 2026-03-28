@@ -5,6 +5,7 @@
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import { registerOpenAPI } from '@kb-labs/shared-http';
 import type { WorkflowEngine, WorkflowService } from '@kb-labs/workflow-engine';
 import type { ILogger } from '@kb-labs/core-platform';
 import type { JobBroker } from './job-broker.js';
@@ -46,6 +47,15 @@ export async function createServer(options: CreateServerOptions) {
   });
 
   const isProduction = process.env.NODE_ENV === 'production';
+
+  // OpenAPI / Swagger UI — must be registered before routes
+  await registerOpenAPI(server, {
+    title: 'KB Labs Workflow Daemon',
+    description: 'Background job execution and workflow orchestration API',
+    version: '1.0.0',
+    servers: [{ url: 'http://localhost:7778', description: 'Local dev' }],
+    ui: !isProduction,
+  });
   const requireAuth = process.env.KB_DAEMON_REQUIRE_AUTH === 'true' || isProduction;
   const daemonApiKey = process.env.KB_DAEMON_API_KEY;
   const enableLegacyEndpoints = process.env.KB_DAEMON_ENABLE_LEGACY_ENDPOINTS === 'true';
@@ -85,7 +95,6 @@ export async function createServer(options: CreateServerOptions) {
     'http://localhost:5173', // Vite dev server
   ];
 
-  // @ts-expect-error - Fastify CORS plugin type mismatch
   await server.register(cors, {
     origin: (origin, callback) => {
       // TODO: Security - For production, implement proper authentication (API keys, mTLS)
