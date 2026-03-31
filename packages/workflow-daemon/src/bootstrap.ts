@@ -10,7 +10,7 @@ import { JobBroker } from './job-broker.js';
 import { CronScheduler } from './cron-scheduler.js';
 import { CronDiscovery } from './cron-discovery.js';
 import { createServer } from './server.js';
-import { createIEntityRegistry } from '@kb-labs/core-registry';
+import { createRegistry } from '@kb-labs/core-registry';
 import { findRepoRoot } from '@kb-labs/core-sys';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
@@ -73,7 +73,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   // Initialize CLI API consumer snapshot
   bootstrapLogger.info('Loading plugin registry snapshot');
 
-  const cliApi = await createIEntityRegistry({
+  const cliApi = await createRegistry({
     registry: {
       root: repoRoot,
     },
