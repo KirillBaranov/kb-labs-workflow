@@ -16,7 +16,7 @@
  * ```
  */
 
-import type { CliAPI } from '@kb-labs/cli-api';
+import type { IEntityRegistry } from '@kb-labs/core-registry';
 import type {
   ManifestV3,
   WorkflowHandlerDecl,
@@ -111,7 +111,7 @@ export interface WorkflowRuntime {
  */
 export interface ManifestScannerOptions {
   /** CLI API instance */
-  cliApi: CliAPI;
+  cliApi: IEntityRegistry;
 
   /** Platform services (for state, logger, etc.) */
   platform: PlatformServices;
@@ -126,7 +126,7 @@ export interface ManifestScannerOptions {
  * Discovers workflows and jobs from installed plugin manifests.
  */
 export class ManifestScanner {
-  private readonly cliApi: CliAPI;
+  private readonly cliApi: IEntityRegistry;
   private readonly platform: PlatformServices;
   private readonly cacheTtlMs: number;
 

@@ -36,7 +36,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@kb-labs/cli-api": "link:../../../kb-labs-cli/packages/cli-api",
+    "@kb-labs/core-registry": "link:../../../kb-labs-core/packages/core-registry",
     "@kb-labs/core-contracts": "link:../../../kb-labs-core/packages/core-contracts",
     "@kb-labs/core-platform": "link:../../../kb-labs-core/packages/core-platform",
     "@kb-labs/plugin-contracts": "link:../../../../infra/kb-labs-plugin/packages/plugin-contracts",

@@ -9,7 +9,7 @@
  *
  * ## Integration Pattern (REST API-style)
  *
- * Instead of direct plugin discovery and loading, we:
+ * Instead of resolving plugins inline inside the runner, we:
  * 1. Accept ExecutionBackend from platform (via options)
  * 2. Build ExecutionRequest with PluginContextDescriptor
  * 3. Call backend.execute() - platform handles the rest
@@ -40,7 +40,7 @@ import type {
 } from '@kb-labs/plugin-execution'
 import type { PermissionSpec } from '@kb-labs/plugin-contracts'
 import { getHandlerPermissions } from '@kb-labs/plugin-contracts'
-import type { CliAPI } from '@kb-labs/cli-api'
+import type { IEntityRegistry } from '@kb-labs/core-registry'
 import type {
   Runner,
   StepExecutionRequest,
@@ -60,7 +60,7 @@ export interface SandboxRunnerOptions {
    * CLI API for plugin resolution (REQUIRED).
    * Needed to resolve plugin IDs to plugin roots and handler paths.
    */
-  cliApi: CliAPI
+  cliApi: IEntityRegistry
 
   /**
    * Workspace root directory.
@@ -98,7 +98,7 @@ interface PluginCommandResolution {
  */
 export class SandboxRunner implements Runner {
   private readonly backend: ExecutionBackend
-  private readonly cliApi: CliAPI
+  private readonly cliApi: IEntityRegistry
   private readonly workspaceRoot: string
   private readonly defaultTimeout: number
   private readonly analytics?: IAnalytics

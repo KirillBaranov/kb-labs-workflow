@@ -8,7 +8,7 @@
  */
 
 import type { WorkflowEngine } from '@kb-labs/workflow-engine';
-import type { CliAPI } from '@kb-labs/cli-api';
+import type { IEntityRegistry } from '@kb-labs/core-registry';
 import type { ILogger, IAnalytics, IWorkspaceProvider } from '@kb-labs/core-platform';
 import type { IExecutionBackend } from '@kb-labs/core-contracts';
 import type { ExecutionTarget, ExpressionContext } from '@kb-labs/workflow-contracts';
@@ -28,7 +28,7 @@ interface Platform {
 
 export interface CreateWorkflowWorkerOptions {
   engine: WorkflowEngine;
-  cliApi: CliAPI;
+  cliApi: IEntityRegistry;
   logger: ILogger;
   platform: Platform;
   workspaceRoot: string;

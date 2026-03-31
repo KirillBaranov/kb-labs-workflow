@@ -10,8 +10,8 @@ import { JobBroker } from './job-broker.js';
 import { CronScheduler } from './cron-scheduler.js';
 import { CronDiscovery } from './cron-discovery.js';
 import { createServer } from './server.js';
-import { createCliAPI } from '@kb-labs/cli-api';
-import { findRepoRoot, discoverSubRepoPaths } from '@kb-labs/core-sys';
+import { createIEntityRegistry } from '@kb-labs/core-registry';
+import { findRepoRoot } from '@kb-labs/core-sys';
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
@@ -70,22 +70,12 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
 
   bootstrapLogger.info('Workflow daemon starting', { repoRoot });
 
-  // Initialize CLI API for plugin discovery
-  bootstrapLogger.info('Initializing CLI API for plugin discovery');
+  // Initialize CLI API consumer snapshot
+  bootstrapLogger.info('Loading plugin registry snapshot');
 
-  // Collect all sub-repo paths for plugin discovery.
-  // Uses .gitmodules for accurate nested layout — no hardcoded category dirs.
-  const discoveryRoots = [repoRoot, ...discoverSubRepoPaths(repoRoot)];
-  bootstrapLogger.info('Discovery roots configured', {
-    roots: discoveryRoots,
-    rootsCount: discoveryRoots.length,
-  });
-
-  const cliApi = await createCliAPI({
-    discovery: {
-      strategies: ['workspace', 'pkg', 'dir', 'file'],
-      roots: discoveryRoots,
-      allowDowngrade: false,
+  const cliApi = await createIEntityRegistry({
+    registry: {
+      root: repoRoot,
     },
     cache: {
       inMemory: true,
@@ -95,14 +85,13 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
       level: 'info',
     },
     snapshot: {
-      mode: 'producer', // Workflow daemon produces its own snapshots (standalone mode)
-      refreshIntervalMs: 60_000, // Refresh every minute
+      mode: 'consumer',
     },
   });
 
   await cliApi.initialize();
   const plugins = await cliApi.listPlugins();
-  bootstrapLogger.info('CLI API discovery complete', {
+  bootstrapLogger.info('Plugin registry snapshot loaded', {
     pluginsFound: plugins.length,
     pluginIds: plugins.map(p => `${p.id}@${p.version}`),
   });

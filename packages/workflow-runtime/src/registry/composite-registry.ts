@@ -1,19 +1,19 @@
 import type { ResolvedWorkflow, WorkflowRegistry } from './types'
-import type { CliAPI } from '@kb-labs/cli-api'
+import type { IEntityRegistry } from '@kb-labs/core-registry'
 import type { WorkspaceWorkflowRegistry } from './workspace-registry'
 import type { RemoteWorkflowRegistry } from './remote-registry'
 import { extractWorkflows } from './plugin-workflows'
 import { WorkflowRegistryError } from './errors'
 
 /**
- * Composite registry that combines workspace, plugin (via CliAPI), and remote registries
+ * Composite registry that combines workspace, plugin (via IEntityRegistry), and remote registries
  */
 export class CompositeWorkflowRegistry implements WorkflowRegistry {
   private cache: ResolvedWorkflow[] | null = null
 
   constructor(
     private readonly workspace: WorkspaceWorkflowRegistry,
-    private readonly cliApi: CliAPI | null,
+    private readonly cliApi: IEntityRegistry | null,
     private readonly remote?: RemoteWorkflowRegistry,
   ) {}
 
@@ -26,7 +26,7 @@ export class CompositeWorkflowRegistry implements WorkflowRegistry {
       this.workspace.list(),
     ]
 
-    // Extract plugin workflows from CliAPI snapshot
+    // Extract plugin workflows from IEntityRegistry snapshot
     if (this.cliApi) {
       const snapshot = this.cliApi.snapshot()
       registries.push(extractWorkflows(snapshot))
@@ -99,7 +99,7 @@ export class CompositeWorkflowRegistry implements WorkflowRegistry {
     const refreshTasks = [
       this.workspace.refresh(),
     ]
-    // Plugin workflows refresh via CliAPI.refreshRegistry() - no-op here
+    // Plugin workflows refresh via IEntityRegistry.refreshRegistry() - no-op here
     if (this.remote) {
       refreshTasks.push(this.remote.refresh())
     }

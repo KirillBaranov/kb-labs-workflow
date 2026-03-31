@@ -7,7 +7,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, basename, extname } from 'node:path';
 import YAML from 'yaml';
 import type { ILogger } from '@kb-labs/core-platform';
-import type { CliAPI } from '@kb-labs/cli-api';
+import type { IEntityRegistry } from '@kb-labs/core-registry';
 import type { CronScheduler } from './cron-scheduler.js';
 import {
   PluginCronJobSchema,
@@ -15,7 +15,7 @@ import {
 } from '@kb-labs/workflow-contracts';
 
 export interface CronDiscoveryOptions {
-  cliApi: CliAPI;
+  cliApi: IEntityRegistry;
   scheduler: CronScheduler;
   logger: ILogger;
   workspaceRoot: string;
@@ -27,7 +27,7 @@ export interface CronDiscoveryOptions {
  * 2. User YAML files (.kb/jobs/*.yml)
  */
 export class CronDiscovery {
-  private readonly cliApi: CliAPI;
+  private readonly cliApi: IEntityRegistry;
   private readonly scheduler: CronScheduler;
   private readonly logger: ILogger;
   private readonly workspaceRoot: string;

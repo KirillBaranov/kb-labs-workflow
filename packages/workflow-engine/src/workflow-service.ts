@@ -19,7 +19,7 @@
 
 import { WorkflowSpecSchema } from '@kb-labs/workflow-contracts';
 import type { WorkflowSpec } from '@kb-labs/workflow-contracts';
-import type { CliAPI } from '@kb-labs/cli-api';
+import type { IEntityRegistry } from '@kb-labs/core-registry';
 import type { PlatformServices } from '@kb-labs/plugin-contracts';
 import { ManifestScanner, type WorkflowRuntime } from './manifest-scanner';
 import { WorkflowRepository, type WorkflowListOptions } from './workflow-repository';
@@ -63,7 +63,7 @@ export interface WorkflowServiceListOptions extends WorkflowListOptions {
  */
 export interface WorkflowServiceOptions {
   /** CLI API for plugin manifest scanning */
-  cliApi: CliAPI;
+  cliApi: IEntityRegistry;
 
   /** Platform services */
   platform: PlatformServices;
