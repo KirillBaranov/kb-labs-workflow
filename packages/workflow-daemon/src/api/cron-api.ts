@@ -5,6 +5,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { ILogger } from '@kb-labs/core-platform';
+import type { OperationObserver } from '@kb-labs/shared-http';
 import type { CronRegistrationRequest } from '@kb-labs/workflow-contracts';
 import type { WorkflowHostService } from '../host/workflow-host-service.js';
 import { fail, ok } from './response.js';
@@ -17,13 +18,14 @@ export interface CronAPIOptions {
   server: FastifyInstance;
   hostService: WorkflowHostService;
   logger: ILogger;
+  observability: OperationObserver;
 }
 
 /**
  * Register Cron API routes
  */
 export function registerCronAPI(options: CronAPIOptions): void {
-  const { server, hostService, logger } = options;
+  const { server, hostService, logger, observability } = options;
 
   const registerCronHandler = async (
     request: { headers: Record<string, unknown>; body: CronRegistrationRequest },
@@ -31,7 +33,9 @@ export function registerCronAPI(options: CronAPIOptions): void {
   ) => {
     const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
     try {
-      const data = hostService.registerCron(tenantId, request.body);
+      const data = await observability.observeOperation('workflow.cron.register', () =>
+        Promise.resolve(hostService.registerCron(tenantId, request.body)),
+      );
       return ok(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to register cron job';
@@ -48,7 +52,7 @@ export function registerCronAPI(options: CronAPIOptions): void {
 
   const listCronHandler = async (_request: unknown, reply: any) => {
     try {
-      return ok(hostService.listCron());
+      return ok(await observability.observeOperation('workflow.cron.list', () => Promise.resolve(hostService.listCron())));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to list cron jobs';
       if (message === 'Cron scheduler not available') {
@@ -66,7 +70,9 @@ export function registerCronAPI(options: CronAPIOptions): void {
     const { id } = request.params;
     const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
     try {
-      const data = hostService.unregisterCron(tenantId, id);
+      const data = await observability.observeOperation('workflow.cron.unregister', () =>
+        Promise.resolve(hostService.unregisterCron(tenantId, id)),
+      );
       return ok(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to unregister cron job';
@@ -85,7 +91,7 @@ export function registerCronAPI(options: CronAPIOptions): void {
     const { id } = request.params;
     const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
     try {
-      const data = await hostService.triggerCron(tenantId, id);
+      const data = await observability.observeOperation('workflow.cron.trigger', () => hostService.triggerCron(tenantId, id));
       return ok(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to trigger cron job';
@@ -104,7 +110,9 @@ export function registerCronAPI(options: CronAPIOptions): void {
     const { id } = request.params;
     const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
     try {
-      const data = hostService.pauseCron(tenantId, id);
+      const data = await observability.observeOperation('workflow.cron.pause', () =>
+        Promise.resolve(hostService.pauseCron(tenantId, id)),
+      );
       return ok(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to pause cron job';
@@ -123,7 +131,9 @@ export function registerCronAPI(options: CronAPIOptions): void {
     const { id } = request.params;
     const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
     try {
-      const data = hostService.resumeCron(tenantId, id);
+      const data = await observability.observeOperation('workflow.cron.resume', () =>
+        Promise.resolve(hostService.resumeCron(tenantId, id)),
+      );
       return ok(data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to resume cron job';

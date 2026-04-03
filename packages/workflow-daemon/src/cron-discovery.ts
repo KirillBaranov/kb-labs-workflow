@@ -59,59 +59,34 @@ export class CronDiscovery {
   }
 
   /**
-   * Discover cron jobs from plugin manifests.
+   * Discover cron jobs from plugin manifests via entity registry.
+   * Uses queryEntities({ kind: 'cron' }) — no manual manifest scanning.
    */
   private async discoverPluginJobs(): Promise<number> {
     let count = 0;
 
     try {
-      const plugins = await this.cliApi.listPlugins();
+      const cronEntities = this.cliApi.queryEntities({ kind: 'cron' });
 
-      // Process all plugins in parallel for better performance
-      const results = await Promise.allSettled(
-        plugins.map(async (plugin) => {
-          // Get plugin manifest
-          const manifest = await this.cliApi.getManifestV2(plugin.id);
-
-          // Check if manifest has cron section
-          const cronSection = (manifest as any)?.cron;
-          if (!cronSection || !Array.isArray(cronSection)) {
-            return 0;
-          }
-
-          this.logger.debug('Found cron section in plugin manifest', {
-            pluginId: plugin.id,
-            cronJobs: cronSection.length,
-          });
-
-          // Validate and register each cron job
-          let pluginCount = 0;
-          for (const jobDef of cronSection) {
-            try {
-              const validated = PluginCronJobSchema.parse(jobDef);
-              this.scheduler.registerPluginJob(plugin.id, validated);
-              pluginCount++;
-            } catch (error) {
-              this.logger.warn('Invalid plugin cron job definition', {
-                pluginId: plugin.id,
-                jobDef,
-                error: error instanceof Error ? error.message : String(error),
-              });
-            }
-          }
-          return pluginCount;
-        })
-      );
-
-      // Sum up counts from successful results
-      for (const result of results) {
-        if (result.status === 'fulfilled') {
-          count += result.value;
-        } else {
-          this.logger.warn('Failed to process plugin manifest', {
-            error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      for (const entity of cronEntities) {
+        try {
+          const validated = PluginCronJobSchema.parse(entity.declaration);
+          this.scheduler.registerPluginJob(entity.ref.pluginId, validated);
+          count++;
+        } catch (error) {
+          this.logger.warn('Invalid plugin cron job definition', {
+            pluginId: entity.ref.pluginId,
+            entityId: entity.ref.entityId,
+            error: error instanceof Error ? error.message : String(error),
           });
         }
+      }
+
+      if (cronEntities.length > 0) {
+        this.logger.debug('Discovered plugin cron jobs via registry', {
+          total: cronEntities.length,
+          registered: count,
+        });
       }
     } catch (error) {
       this.logger.error(
@@ -183,8 +158,10 @@ export class CronDiscovery {
           });
         }
       }
-    } catch (_error) {
-      this.logger.warn('Failed to discover user cron jobs');
+    } catch (error) {
+      this.logger.warn('Failed to discover user cron jobs', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     return count;

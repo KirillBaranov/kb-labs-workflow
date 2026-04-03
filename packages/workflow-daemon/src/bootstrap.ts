@@ -5,6 +5,7 @@
 
 import { platform, createServiceBootstrap } from '@kb-labs/core-runtime';
 import { WorkflowEngine, WorkflowService } from '@kb-labs/workflow-engine';
+import { createCorrelatedLogger } from '@kb-labs/shared-http';
 import { createWorkflowWorker } from './worker.js';
 import { JobBroker } from './job-broker.js';
 import { CronScheduler } from './cron-scheduler.js';
@@ -17,6 +18,7 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import type { WorkflowWorker } from './worker.js';
 import type { FastifyInstance } from 'fastify';
+import type { ILogger } from '@kb-labs/core-platform';
 
 // Singleton instances for cleanup
 let workerInstance: WorkflowWorker | null = null;
@@ -57,18 +59,32 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   const startupRequestId = `workflow-startup-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const startupTraceId = randomUUID();
   const startupSpanId = randomUUID();
-  const bootstrapLogger = platform.logger.child({
+  const bootstrapLogger = createCorrelatedLogger(platform.logger, {
+    serviceId: 'workflow',
+    logsSource: 'workflow',
     layer: 'workflow',
     service: 'bootstrap',
     requestId: startupRequestId,
-    reqId: startupRequestId,
     traceId: startupTraceId,
-    spanId: startupSpanId,
-    invocationId: startupSpanId,
-    executionId: startupSpanId,
+    operation: 'workflow.bootstrap',
+    bindings: {
+      spanId: startupSpanId,
+      invocationId: startupSpanId,
+      executionId: startupSpanId,
+    },
   });
 
   bootstrapLogger.info('Workflow daemon starting', { repoRoot });
+
+  const createWorkflowLogger = (service: string, operation: string, bindings?: Record<string, unknown>): ILogger =>
+    createCorrelatedLogger(platform.logger, {
+      serviceId: 'workflow',
+      logsSource: 'workflow',
+      layer: 'workflow',
+      service,
+      operation,
+      bindings,
+    });
 
   // Initialize CLI API consumer snapshot
   bootstrapLogger.info('Loading plugin registry snapshot');
@@ -100,7 +116,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   const engine = new WorkflowEngine({
     cache: platform.cache,
     events: platform.eventBus,
-    logger: platform.logger,
+    logger: createWorkflowLogger('engine', 'workflow.engine'),
     snapshotManager: (platform as any).snapshotManager,
     workspaceRoot: repoRoot,
   });
@@ -115,14 +131,14 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
 
   // Create JobBroker
   bootstrapLogger.info('Creating JobBroker');
-  const jobBroker = new JobBroker(engine, platform.logger, platform);
+  const jobBroker = new JobBroker(engine, createWorkflowLogger('job-broker', 'workflow.job-broker'), platform);
 
   // Create CronScheduler (before HTTP server so it can be exposed via API)
   bootstrapLogger.info('Creating CronScheduler');
   const cronScheduler = new CronScheduler({
     jobBroker,
     workflowEngine: engine,
-    logger: platform.logger,
+    logger: createWorkflowLogger('cron-scheduler', 'workflow.cron-scheduler'),
     timezone: process.env.WORKFLOW_CRON_TIMEZONE,
   });
 
@@ -134,7 +150,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   const cronDiscovery = new CronDiscovery({
     cliApi,
     scheduler: cronScheduler,
-    logger: platform.logger,
+    logger: createWorkflowLogger('cron-discovery', 'workflow.cron-discovery'),
     workspaceRoot: repoRoot,
   });
 
@@ -157,7 +173,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
     workflowService,
     cronScheduler,
     cronDiscovery,
-    logger: platform.logger,
+    logger: createWorkflowLogger('api', 'workflow.api'),
   });
 
   // Start HTTP server
@@ -173,7 +189,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   const worker = await createWorkflowWorker({
     engine,
     cliApi,
-    logger: platform.logger,
+    logger: createWorkflowLogger('worker', 'workflow.worker'),
     analytics: platform.analytics,
     platform,
     workspaceRoot: repoRoot,

@@ -27,10 +27,14 @@ function createHostServiceMock() {
 describe('Workflow API Contract Integration', () => {
   let app: FastifyInstance;
   let hostService: ReturnType<typeof createHostServiceMock>;
+  let engine: { getRun: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     app = Fastify({ logger: false });
     hostService = createHostServiceMock();
+    engine = {
+      getRun: vi.fn(),
+    };
     const logger = {
       info: vi.fn(),
       warn: vi.fn(),
@@ -41,7 +45,7 @@ describe('Workflow API Contract Integration', () => {
 
     registerJobsAPI({ server: app, hostService: hostService as any, logger });
     registerCronAPI({ server: app, hostService: hostService as any, logger });
-    registerWorkflowsAPI({ server: app, hostService: hostService as any, logger });
+    registerWorkflowsAPI({ server: app, hostService: hostService as any, engine: engine as any, logger });
   });
 
   afterEach(async () => {

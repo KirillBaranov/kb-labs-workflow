@@ -359,13 +359,16 @@ export async function execute(ctx: Context) {
 }
 ```
 
-## Legacy Endpoints (Deprecated)
+## Observability Endpoints
 
-These endpoints are kept for backward compatibility:
+These endpoints are part of the canonical service observability contract:
 
-- `POST /jobs/submit` - Use `POST /api/v1/jobs` instead
-- `GET /jobs/:id/status` - Use `GET /api/v1/jobs/:id` instead
-- `GET /cron/jobs` - Use `GET /api/v1/cron` instead
+- `GET /health` - Cheap public health snapshot
+- `GET /metrics` - Prometheus-compatible metrics snapshot
+- `GET /observability/describe` - Versioned service descriptor
+- `GET /observability/health` - Structured runtime health and top operations
+
+Legacy daemon endpoints were removed. Use only the `/api/v1/*` API surface for jobs, cron, and workflows.
 
 ## Related Files
 

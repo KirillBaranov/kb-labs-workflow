@@ -5,6 +5,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { ILogger } from '@kb-labs/core-platform';
+import type { OperationObserver } from '@kb-labs/shared-http';
 import type {
   JobSubmissionRequest,
   JobListFilter,
@@ -16,13 +17,14 @@ export interface JobsAPIOptions {
   server: FastifyInstance;
   hostService: WorkflowHostService;
   logger: ILogger;
+  observability: OperationObserver;
 }
 
 /**
  * Register Jobs API routes
  */
 export function registerJobsAPI(options: JobsAPIOptions): void {
-  const { server, hostService, logger } = options;
+  const { server, hostService, logger, observability } = options;
 
   /**
    * Submit job
@@ -35,7 +37,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
 
       try {
-        const data = await hostService.submitJob(tenantId, request.body);
+        const data = await observability.observeOperation('workflow.job.submit', () => hostService.submitJob(tenantId, request.body));
         return ok(data);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Job submission failed';
@@ -61,7 +63,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
 
       try {
-        const data = await hostService.getJob(tenantId, jobId);
+        const data = await observability.observeOperation('workflow.job.get', () => hostService.getJob(tenantId, jobId));
         return ok(data);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to get job status';
@@ -86,7 +88,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
       const tenantId = (request.headers['x-tenant-id'] as string) ?? 'default';
 
       try {
-        const data = await hostService.cancelJob(tenantId, jobId);
+        const data = await observability.observeOperation('workflow.job.cancel', () => hostService.cancelJob(tenantId, jobId));
         return ok(data);
       } catch (error) {
         logger.error('Failed to cancel job', error instanceof Error ? error : undefined);
@@ -107,7 +109,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
       const filter = request.query;
 
       try {
-        const data = await hostService.listJobs(tenantId, filter);
+        const data = await observability.observeOperation('workflow.job.list', () => hostService.listJobs(tenantId, filter));
         return ok(data);
       } catch (error) {
         logger.error('Failed to list jobs', error instanceof Error ? error : undefined);
@@ -121,7 +123,7 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
     async (request, reply) => {
       const { jobId } = request.params;
       try {
-        const steps = await hostService.getJobSteps(jobId);
+        const steps = await observability.observeOperation('workflow.job.steps', () => hostService.getJobSteps(jobId));
         return ok(steps);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to get job steps';
@@ -152,7 +154,9 @@ export function registerJobsAPI(options: JobsAPIOptions): void {
           : undefined;
 
       try {
-        const logs = await hostService.getJobLogs(jobId, { limit, offset, level });
+        const logs = await observability.observeOperation('workflow.job.logs', () =>
+          hostService.getJobLogs(jobId, { limit, offset, level }),
+        );
         return ok({ logs });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to get job logs';

@@ -153,54 +153,66 @@ export class ManifestScanner {
       }
     }
 
-    this.platform.logger?.debug('ManifestScanner: Scanning plugin manifests');
-    const snapshot = this.cliApi.snapshot();
+    this.platform.logger?.debug('ManifestScanner: Querying entity registry');
     const workflows: WorkflowRuntime[] = [];
 
-    for (const entry of snapshot.manifests ?? []) {
-      const pluginWorkflows = this.scanPlugin(entry.pluginId, entry.manifest, entry.pluginRoot);
-      workflows.push(...pluginWorkflows);
+    // Query workflow, job, and cron entities from registry (extracted from ManifestV3 by catalog)
+    const workflowEntities = this.cliApi.queryEntities({ kind: 'workflow' });
+    const jobEntities = this.cliApi.queryEntities({ kind: 'job' });
+    const cronEntities = this.cliApi.queryEntities({ kind: 'cron' });
+
+    // Get plugin roots for handler path resolution
+    const pluginRoots = new Map<string, string>();
+    for (const plugin of this.cliApi.listPlugins()) {
+      pluginRoots.set(plugin.id, plugin.source.path);
     }
 
-    this.platform.logger?.info('ManifestScanner: Discovered workflows', {
+    const allEntities = [
+      ...workflowEntities.map(e => ({ entity: e, converter: 'workflow' as const })),
+      ...jobEntities.map(e => ({ entity: e, converter: 'job' as const })),
+      ...cronEntities.map(e => ({ entity: e, converter: 'cron' as const })),
+    ];
+
+    for (const { entity, converter } of allEntities) {
+      const root = pluginRoots.get(entity.ref.pluginId);
+      if (!root) {
+        this.platform.logger?.warn('ManifestScanner: Plugin root not found, skipping entity', {
+          pluginId: entity.ref.pluginId,
+          entityId: entity.ref.entityId,
+          kind: entity.ref.kind,
+        });
+        continue;
+      }
+
+      try {
+        if (converter === 'workflow') {
+          workflows.push(this.convertWorkflowHandler(entity.ref.pluginId, entity.declaration as any, root));
+        } else if (converter === 'job') {
+          workflows.push(this.convertJobHandler(entity.ref.pluginId, entity.declaration as any, root));
+        } else {
+          workflows.push(this.convertCronSchedule(entity.ref.pluginId, entity.declaration as any, root));
+        }
+      } catch (err) {
+        this.platform.logger?.warn('ManifestScanner: Failed to convert entity', {
+          pluginId: entity.ref.pluginId,
+          entityId: entity.ref.entityId,
+          kind: entity.ref.kind,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    this.platform.logger?.info('ManifestScanner: Discovered workflows via registry', {
       count: workflows.length,
-      plugins: snapshot.manifests?.length ?? 0,
+      workflows: workflowEntities.length,
+      jobs: jobEntities.length,
+      crons: cronEntities.length,
     });
 
     // Cache results (via platform cache)
     if (this.platform.cache) {
       await this.platform.cache.set(cacheKey, workflows, this.cacheTtlMs);
     }
-
-    return workflows;
-  }
-
-  /**
-   * Scan specific plugin for workflows, jobs, and cron schedules.
-   */
-  scanPlugin(pluginId: string, manifest: ManifestV3, pluginRoot: string): WorkflowRuntime[] {
-    const workflows: WorkflowRuntime[] = [];
-
-    // 1. Scan workflow handlers
-    const workflowHandlers = manifest.workflows?.handlers ?? [];
-    for (const handler of workflowHandlers) {
-      workflows.push(this.convertWorkflowHandler(pluginId, handler, pluginRoot));
-    }
-
-    // 2. Scan job handlers (background tasks, invoked on-demand)
-    const jobHandlers = manifest.jobs?.handlers ?? [];
-    for (const handler of jobHandlers) {
-      workflows.push(this.convertJobHandler(pluginId, handler, pluginRoot));
-    }
-
-    // 3. Scan cron schedules (recurring tasks on schedule)
-    const cronSchedules = manifest.cron?.schedules ?? [];
-    for (const schedule of cronSchedules) {
-      workflows.push(this.convertCronSchedule(pluginId, schedule, pluginRoot));
-    }
-
-    // 4. Legacy: Support old manifest.jobs format (deprecated)
-    // NOTE: Removed legacy jobs support - use cron schedules instead
 
     return workflows;
   }

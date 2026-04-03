@@ -34,6 +34,8 @@ export interface WorkflowHostServiceOptions {
   cronScheduler?: CronScheduler;
 }
 
+export type WorkflowEngineMetrics = Awaited<ReturnType<WorkflowEngine['getMetrics']>>;
+
 export class WorkflowHostService {
   constructor(private readonly options: WorkflowHostServiceOptions) {}
 
@@ -41,7 +43,7 @@ export class WorkflowHostService {
     return { ok: true, service: 'workflow-daemon' };
   }
 
-  async getMetrics(): Promise<unknown> {
+  async getMetrics(): Promise<WorkflowEngineMetrics> {
     return this.options.engine.getMetrics();
   }
 

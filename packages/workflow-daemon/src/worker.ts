@@ -9,9 +9,11 @@
 
 import type { WorkflowEngine } from '@kb-labs/workflow-engine';
 import type { IEntityRegistry } from '@kb-labs/core-registry';
+import { logDiagnosticEvent } from '@kb-labs/core-platform';
 import type { ILogger, IAnalytics, IWorkspaceProvider } from '@kb-labs/core-platform';
 import type { IExecutionBackend } from '@kb-labs/core-contracts';
 import type { ExecutionTarget, ExpressionContext } from '@kb-labs/workflow-contracts';
+import { createCorrelatedLogger } from '@kb-labs/shared-http';
 import {
   interpolateObject,
   evaluateExpression,
@@ -129,14 +131,19 @@ export async function createWorkflowWorker(
     }
     claimedJobs.add(jobKey);
     const jobStartTime = Date.now();
-    const jobLogger = logger.child({
+    const jobLogger = createCorrelatedLogger(logger, {
+      serviceId: 'workflow',
+      logsSource: 'workflow',
       layer: 'workflow',
-      workflowId: run.id,
-      runId: run.id,
-      jobId: job.id,
+      service: 'worker',
       requestId: run.id,
-      reqId: run.id,
       traceId: run.id,
+      operation: 'workflow.job',
+      bindings: {
+        workflowId: run.id,
+        runId: run.id,
+        jobId: job.id,
+      },
     });
 
     jobLogger.info('Processing job', {
@@ -194,7 +201,22 @@ export async function createWorkflowWorker(
         }
       } catch (wsError) {
         const msg = wsError instanceof Error ? wsError.message : String(wsError);
-        jobLogger.error(`Workspace provisioning failed: ${msg}`);
+        logDiagnosticEvent(jobLogger as unknown as ILogger, {
+          domain: 'workflow',
+          event: 'workflow.workspace.provision',
+          level: 'error',
+          reasonCode: inferWorkspaceProvisionReasonCode(msg),
+          message: 'Workspace provisioning failed',
+          outcome: 'failed',
+          error: wsError instanceof Error ? wsError : new Error(String(wsError)),
+          serviceId: 'workflow',
+          stage: 'materialize',
+          evidence: {
+            runId: run.id,
+            jobId: job.id,
+            workspaceId: wsId,
+          },
+        });
         throw new Error(`Workspace provisioning failed: ${msg}`);
       }
     }
@@ -260,6 +282,7 @@ export async function createWorkflowWorker(
 
           const stepExecutionId = `wf-${run.id}-${job.id}-${step.id}-${Date.now()}`;
           const stepLogger = jobLogger.child({
+            operation: 'workflow.step',
             stepId: step.id,
             attempt: 1,
             executionId: stepExecutionId,
@@ -601,14 +624,20 @@ export async function createWorkflowWorker(
           await sleep(1000);
         }
       } catch (error) {
-        logger.error(
-          'Worker loop error',
-          error instanceof Error ? error : undefined,
-          {
+        logDiagnosticEvent(logger, {
+          domain: 'workflow',
+          event: 'workflow.worker.loop',
+          level: 'error',
+          reasonCode: 'worker_loop_error',
+          message: 'Worker loop error',
+          outcome: 'failed',
+          error: error instanceof Error ? error : new Error(String(error)),
+          serviceId: 'workflow',
+          evidence: {
             errorMessage: error instanceof Error ? error.message : String(error),
             errorStack: error instanceof Error ? error.stack : undefined,
           },
-        );
+        });
         await sleep(5000); // Wait longer on error
       }
     }
@@ -712,4 +741,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => {
     setTimeout(resolve, ms);
   });
+}
+
+function inferWorkspaceProvisionReasonCode(message: string) {
+  return /ETIMEDOUT|timeout/iu.test(message)
+    ? 'workspace_provision_timeout'
+    : 'workspace_provision_failed';
 }

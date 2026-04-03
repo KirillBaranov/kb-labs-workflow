@@ -260,4 +260,84 @@ describe('workflow worker lifecycle', () => {
     // Verify: no getAdapter exists — if worker tried to call it, it would crash
     expect((platformObj as any).getAdapter).toBeUndefined();
   });
+
+  it('emits structured diagnostic log when workspace provisioning fails', async () => {
+    const runId = `run-ws-fail-${Date.now().toString(36)}`;
+    const jobId = `${runId}:job`;
+    const run: any = {
+      id: runId,
+      env: {},
+      metadata: {},
+      jobs: [{
+        id: jobId,
+        jobName: 'job',
+        status: 'queued',
+        attempt: 0,
+        steps: [{
+          id: 'step-1',
+          status: 'pending',
+          spec: { uses: 'plugin:test/handler' },
+        }],
+      }],
+    };
+
+    const completion = createDeferred<void>();
+    let queueDrained = false;
+    const engine: any = {
+      async nextJob() {
+        if (queueDrained) return null;
+        queueDrained = true;
+        return { runId, jobId };
+      },
+      async getRun(id: string) { return id === runId ? run : null; },
+      async markJobStarted() { run.jobs[0].status = 'running'; },
+      async markJobCompleted() { completion.resolve(); },
+      async markJobFailed() { run.jobs[0].status = 'failed'; completion.resolve(); },
+      async markStepStarted() {},
+      async markStepCompleted() {},
+      async markStepFailed() {},
+      async markJobInterrupted() {},
+    };
+
+    const logger = {
+      info: vi.fn(),
+      debug: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      child: vi.fn(() => logger),
+    };
+
+    const worker = await createWorkflowWorker({
+      engine,
+      cliApi: {} as any,
+      logger: logger as any,
+      workspaceRoot: '/tmp/test-workspace',
+      platform: {
+        executionBackend: { execute: vi.fn() } as any,
+        hasExecutionBackend: true,
+        getAdapter: vi.fn().mockReturnValue({
+          materialize: vi.fn().mockRejectedValue(new Error('spawnSync /bin/sh ETIMEDOUT')),
+        }),
+      },
+      concurrency: 1,
+    });
+
+    const startPromise = worker.start();
+    await Promise.race([
+      completion.promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10_000)),
+    ]);
+    await worker.stop();
+    await startPromise;
+
+    expect(logger.error).toHaveBeenCalledWith(
+      'Workspace provisioning failed',
+      expect.any(Error),
+      expect.objectContaining({
+        diagnosticEvent: 'workflow.workspace.provision',
+        reasonCode: 'workspace_provision_timeout',
+        serviceId: 'workflow',
+      }),
+    );
+  });
 });

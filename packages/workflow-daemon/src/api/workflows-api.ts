@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ILogger } from '@kb-labs/core-platform';
 import type { WorkflowRunRequest } from '@kb-labs/workflow-contracts';
 import type { WorkflowEngine, WorkflowService } from '@kb-labs/workflow-engine';
+import type { OperationObserver } from '@kb-labs/shared-http';
 import type { WorkflowHostService } from '../host/workflow-host-service.js';
 import { fail, ok } from './response.js';
 
@@ -21,6 +22,7 @@ export interface RegisterWorkflowsAPIOptions {
   engine: WorkflowEngine;
   workflowService?: WorkflowService;
   logger: ILogger;
+  observability: OperationObserver;
 }
 
 /**
@@ -33,7 +35,7 @@ export interface RegisterWorkflowsAPIOptions {
  * - POST /api/v1/workflows/:id/run - Run a workflow
  */
 export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void {
-  const { server, hostService, engine, workflowService, logger } = options;
+  const { server, hostService, engine, workflowService, logger, observability } = options;
 
   // POST /api/v1/workflows/refresh - Reload workflow definitions from disk
   server.post('/api/v1/workflows/refresh', { schema: { tags: ['Workflows'], summary: 'Reload workflow definitions from disk' } }, async () => {
@@ -41,11 +43,11 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
       logger.info('[workflows-api] Refreshing workflows from disk');
 
       if (workflowService) {
-        await workflowService.refreshManifests();
+        await observability.observeOperation('workflow.catalog.refresh', () => workflowService.refreshManifests());
       }
 
       const workflows = workflowService
-        ? await workflowService.listAll()
+        ? await observability.observeOperation('workflow.catalog.list', () => workflowService.listAll())
         : [];
 
       return ok({
@@ -67,7 +69,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
     };
   }>('/api/v1/workflows', { schema: { tags: ['Workflows'], summary: 'List workflow definitions' } }, async (request, reply) => {
     try {
-      const response = await hostService.listWorkflows(request.query);
+      const response = await observability.observeOperation('workflow.catalog.list', () => hostService.listWorkflows(request.query));
       return ok(response);
     } catch (error) {
       logger.error('[workflows-api] Error listing workflows', error instanceof Error ? error : undefined);
@@ -81,7 +83,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   }>('/api/v1/workflows/:id', { schema: { tags: ['Workflows'], summary: 'Get workflow definition' } }, async (request, reply) => {
     try {
       const { id } = request.params;
-      const workflow = await hostService.getWorkflow(id);
+      const workflow = await observability.observeOperation('workflow.catalog.get', () => hostService.getWorkflow(id));
       if (!workflow) {
         return fail(reply, 404, 'Workflow not found');
       }
@@ -100,11 +102,13 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
     try {
       const { id } = request.params;
       const { limit, offset, status } = request.query;
-      const response = await hostService.listWorkflowRuns(id, {
-        limit: limit ? parseInt(limit, 10) : 50,
-        offset: offset ? parseInt(offset, 10) : 0,
-        status,
-      });
+      const response = await observability.observeOperation('workflow.run.list', () =>
+        hostService.listWorkflowRuns(id, {
+          limit: limit ? parseInt(limit, 10) : 50,
+          offset: offset ? parseInt(offset, 10) : 0,
+          status,
+        }),
+      );
       return ok(response);
     } catch (error) {
       logger.error('[workflows-api] Error listing workflow runs', error instanceof Error ? error : undefined);
@@ -119,7 +123,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   }>('/api/v1/workflows/:id/run', { schema: { tags: ['Workflows'], summary: 'Run a workflow' } }, async (request, reply) => {
     try {
       const { id } = request.params;
-      const response = await hostService.runWorkflow(id, request.body || {});
+      const response = await observability.observeOperation('workflow.run.start', () => hostService.runWorkflow(id, request.body || {}));
       return ok(response);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to run workflow';
@@ -137,7 +141,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   }>('/api/v1/workflows/runs/:runId/cancel', { schema: { tags: ['Workflows'], summary: 'Cancel a workflow run' } }, async (request, reply) => {
     try {
       const { runId } = request.params;
-      await hostService.cancelRun(runId);
+      await observability.observeOperation('workflow.run.cancel', () => hostService.cancelRun(runId));
       return ok({ cancelled: true, runId });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to cancel run';
@@ -158,11 +162,13 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   }>('/api/v1/runs', { schema: { tags: ['Runs'], summary: 'List all workflow runs' } }, async (request, reply) => {
     try {
       const { status, limit, offset } = request.query;
-      const response = await hostService.listRuns({
-        status,
-        limit: limit ? parseInt(limit, 10) : 50,
-        offset: offset ? parseInt(offset, 10) : 0,
-      });
+      const response = await observability.observeOperation('workflow.run.list', () =>
+        hostService.listRuns({
+          status,
+          limit: limit ? parseInt(limit, 10) : 50,
+          offset: offset ? parseInt(offset, 10) : 0,
+        }),
+      );
       return ok(response);
     } catch (error) {
       logger.error('[workflows-api] Error listing runs', error instanceof Error ? error : undefined);
@@ -176,7 +182,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   }>('/api/v1/runs/:runId', { schema: { tags: ['Runs'], summary: 'Get a workflow run' } }, async (request, reply) => {
     try {
       const { runId } = request.params;
-      const run = await hostService.getRun(runId);
+      const run = await observability.observeOperation('workflow.run.get', () => hostService.getRun(runId));
       if (!run) {
         return fail(reply, 404, 'Run not found');
       }
@@ -194,7 +200,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
   }>('/api/v1/workflows/runs/:runId/events', { schema: { hide: true } }, async (request, reply) => {
     const { runId } = request.params;
 
-    const run = await engine.getRun(runId);
+    const run = await observability.observeOperation('workflow.run.events', () => engine.getRun(runId));
     if (!run) {
       return fail(reply, 404, 'Run not found');
     }
