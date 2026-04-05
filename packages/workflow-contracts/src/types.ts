@@ -21,11 +21,19 @@ import {
   ArtifactMergeConfigSchema,
   ExecutionTargetSchema,
   IsolationProfileSchema,
+  PhaseSchema,
+  StepProgressSchema,
+  StepArtifactSchema,
+  ApprovalReviewItemSchema,
 } from './schemas'
 
 export type WorkflowSpec = z.infer<typeof WorkflowSpecSchema>
 export type JobSpec = z.infer<typeof JobSpecSchema>
 export type StepSpec = z.infer<typeof StepSpecSchema>
+export type Phase = z.infer<typeof PhaseSchema>
+export type StepProgress = z.infer<typeof StepProgressSchema>
+export type StepArtifact = z.infer<typeof StepArtifactSchema>
+export type ApprovalReviewItem = z.infer<typeof ApprovalReviewItemSchema>
 export type JobHooks = z.infer<typeof JobHooksSchema>
 export type ArtifactMergeStrategy = z.infer<typeof ArtifactMergeStrategySchema>
 export type ArtifactMergeSource = z.infer<typeof ArtifactMergeSourceSchema>

@@ -116,11 +116,11 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
     }
   });
 
-  // POST /api/v1/workflows/:id/run - Run a workflow
+  // POST /api/v1/workflows/:id/runs - Run a workflow
   server.post<{
     Params: { id: string };
     Body: WorkflowRunRequest;
-  }>('/api/v1/workflows/:id/run', { schema: { tags: ['Workflows'], summary: 'Run a workflow' } }, async (request, reply) => {
+  }>('/api/v1/workflows/:id/runs', { schema: { tags: ['Workflows'], summary: 'Run a workflow' } }, async (request, reply) => {
     try {
       const { id } = request.params;
       const response = await observability.observeOperation('workflow.run.start', () => hostService.runWorkflow(id, request.body || {}));
@@ -135,10 +135,10 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
     }
   });
 
-  // POST /api/v1/workflows/runs/:runId/cancel - Cancel a running workflow run
+  // POST /api/v1/runs/:runId/cancel - Cancel a running workflow run
   server.post<{
     Params: { runId: string };
-  }>('/api/v1/workflows/runs/:runId/cancel', { schema: { tags: ['Workflows'], summary: 'Cancel a workflow run' } }, async (request, reply) => {
+  }>('/api/v1/runs/:runId/cancel', { schema: { tags: ['Runs'], summary: 'Cancel a workflow run' } }, async (request, reply) => {
     try {
       const { runId } = request.params;
       await observability.observeOperation('workflow.run.cancel', () => hostService.cancelRun(runId));
@@ -193,11 +193,11 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
     }
   });
 
-  // GET /api/v1/workflows/runs/:runId/events — SSE stream of run events
+  // GET /api/v1/runs/:runId/events — SSE stream of run events
   // hide: true — SSE uses raw socket hijack, incompatible with OpenAPI response schema
   server.get<{
     Params: { runId: string };
-  }>('/api/v1/workflows/runs/:runId/events', { schema: { hide: true } }, async (request, reply) => {
+  }>('/api/v1/runs/:runId/events', { schema: { hide: true } }, async (request, reply) => {
     const { runId } = request.params;
 
     const run = await observability.observeOperation('workflow.run.events', () => engine.getRun(runId));

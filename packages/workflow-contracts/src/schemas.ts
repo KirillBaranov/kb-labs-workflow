@@ -53,6 +53,40 @@ export const ExecutionTargetSchema = z.object({
 
 export const IsolationProfileSchema = z.enum(['strict', 'balanced', 'relaxed'])
 
+// ─── Presentation layer schemas ──────────────────────────────────────────────
+// These fields are consumed by any client (Studio, CLI, API) to provide
+// human-readable context about workflow structure and step behavior.
+
+/** Workflow phase definition — semantic grouping of steps */
+export const PhaseSchema = z.object({
+  label: z.string().min(1),
+  description: z.string().optional(),
+})
+
+/** Live progress binding — resolves a value from step outputs for display */
+export const StepProgressSchema = z.object({
+  source: z.string().min(1),
+  format: z.string().min(1),
+})
+
+/** Step artifact declaration — what a step produces for review/display */
+export const StepArtifactSchema = z.object({
+  type: z.enum(['markdown', 'issues', 'table', 'diff', 'log', 'json', 'link']),
+  source: z.string().min(1),
+  label: z.string().min(1),
+  digest: z.string().optional(),
+  showInSummary: z.boolean().optional(),
+})
+
+/** Approval review item — references an artifact from a previous step */
+export const ApprovalReviewItemSchema = z.object({
+  artifact: z.string().min(1),
+  editable: z.boolean().optional(),
+  decisions: z.boolean().optional(),
+})
+
+// ─── Step spec ───────────────────────────────────────────────────────────────
+
 export const StepSpecSchema = z.object({
   name: z.string().min(1),
   uses: z
@@ -70,6 +104,11 @@ export const StepSpecSchema = z.object({
   secrets: z.array(z.string().min(1)).optional(),
   timeoutMs: TimeoutSchema.optional(),
   continueOnError: z.boolean().optional(),
+  // Presentation layer
+  summary: z.string().optional(),
+  phase: z.string().optional(),
+  progress: StepProgressSchema.optional(),
+  artifacts: z.record(z.string().min(1), StepArtifactSchema).optional(),
 })
 
 export const JobConcurrencySchema = z.object({
@@ -174,6 +213,8 @@ export const WorkflowSpecSchema = z
     env: z.record(z.string(), z.string()).optional(),
     secrets: z.array(z.string().min(1)).optional(),
     jobs: z.record(z.string().min(1), JobSpecSchema),
+    // Presentation layer
+    phases: z.record(z.string().min(1), PhaseSchema).optional(),
   })
   .refine(
     (value) =>

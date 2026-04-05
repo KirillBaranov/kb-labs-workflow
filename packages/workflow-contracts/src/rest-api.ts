@@ -554,3 +554,15 @@ export const WorkflowRunHistoryResponseSchema = z.object({
   runs: z.array(WorkflowRunInfoSchema),
   total: z.number(),
 })
+
+// ─── SSE event types ─────────────────────────────────────────────────────────
+
+/** Server-Sent Event for workflow run log streaming */
+export interface WorkflowLogEvent {
+  type: string
+  runId: string
+  jobId?: string
+  stepId?: string
+  payload?: Record<string, unknown>
+  timestamp?: string
+}

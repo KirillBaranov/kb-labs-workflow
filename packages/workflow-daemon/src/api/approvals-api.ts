@@ -24,16 +24,16 @@ export interface ApprovalsAPIOptions {
  * Register approval management endpoints.
  *
  * Endpoints:
- * - GET  /api/v1/runs/:runId/pending-approvals - List steps waiting for approval
- * - POST /api/v1/runs/:runId/approve           - Approve or reject a step
+ * - GET  /api/v1/runs/:runId/approvals         - List steps waiting for approval
+ * - POST /api/v1/runs/:runId/approvals/resolve - Approve or reject a pending step
  */
 export function registerApprovalsAPI(options: ApprovalsAPIOptions): void {
   const { server, engine, logger, observability } = options;
 
-  // GET /api/v1/runs/:runId/pending-approvals
+  // GET /api/v1/runs/:runId/approvals
   server.get<{
     Params: { runId: string };
-  }>('/api/v1/runs/:runId/pending-approvals', { schema: { tags: ['Approvals'], summary: 'List pending approvals for a run' } }, async (request, reply) => {
+  }>('/api/v1/runs/:runId/approvals', { schema: { tags: ['Approvals'], summary: 'List pending approvals for a run' } }, async (request, reply) => {
     try {
       const { runId } = request.params;
       const run = await observability.observeOperation('workflow.approval.list', () => engine.getRun(runId));
@@ -73,7 +73,7 @@ export function registerApprovalsAPI(options: ApprovalsAPIOptions): void {
     }
   });
 
-  // POST /api/v1/runs/:runId/approve
+  // POST /api/v1/runs/:runId/approvals/resolve
   server.post<{
     Params: { runId: string };
     Body: {
@@ -83,7 +83,7 @@ export function registerApprovalsAPI(options: ApprovalsAPIOptions): void {
       comment?: string;
       data?: Record<string, unknown>;
     };
-  }>('/api/v1/runs/:runId/approve', { schema: { tags: ['Approvals'], summary: 'Approve or reject a pending step' } }, async (request, reply) => {
+  }>('/api/v1/runs/:runId/approvals/resolve', { schema: { tags: ['Approvals'], summary: 'Approve or reject a pending step' } }, async (request, reply) => {
     try {
       const { runId } = request.params;
       const { jobId, stepId, action, comment, data } = request.body;
