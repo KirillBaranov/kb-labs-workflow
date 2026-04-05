@@ -310,6 +310,26 @@ export class SandboxRunner implements Runner {
 
       context.logger.info('Plugin handler completed', logMeta);
 
+      // If handler returned ok: false in its output data, treat as step failure.
+      // This covers shell steps that return {ok: false, exitCode: N} without throwing.
+      if (data && typeof data === 'object' && data.ok === false) {
+        const message = data.stderr
+          ? String(data.stderr).slice(0, 500)
+          : `Step handler reported failure (exitCode: ${data.exitCode ?? 'unknown'})`;
+        context.logger.error('Plugin handler reported failure via ok:false', {
+          stepId: context.stepId,
+          exitCode: data.exitCode,
+          stderr: data.stderr,
+        });
+        return {
+          status: 'failed',
+          error: {
+            message,
+            code: 'HANDLER_REPORTED_FAILURE',
+          },
+        }
+      }
+
       return {
         status: 'success',
         outputs: toWorkflowOutputs(result.data),
