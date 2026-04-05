@@ -9,7 +9,7 @@ interface Props {
 }
 
 export function MarkdownViewer({ data, editable, onEdit }: Props) {
-  const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2)
+  const text = typeof data === 'string' ? data : data == null ? '' : (JSON.stringify(data, null, 2) ?? '')
   const [editing, setEditing] = useState(false)
   const [editValue, setEditValue] = useState(text)
 

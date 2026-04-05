@@ -60,7 +60,7 @@ function HeroBlock({ step, onApprove }: HeroBlockProps) {
   const isWaiting = step.status === 'waiting_approval';
   const isRunning = step.status === 'running';
   // artifacts is Record<name, StepArtifact> in contracts
-  const artifactsMap = step.spec?.artifacts as Record<string, StepArtifact> | undefined;
+  const artifactsMap = (step.spec?.spec?.artifacts ?? step.spec?.artifacts) as Record<string, StepArtifact> | undefined;
   const artifacts = artifactsMap ? Object.values(artifactsMap) : [];
 
   return (
@@ -121,7 +121,7 @@ function HeroBlock({ step, onApprove }: HeroBlockProps) {
             // Resolve dot-path from outputs
             const data = artifact.source.split('.').reduce<unknown>(
               (acc, key) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined),
-              step.outputs,
+              step,
             );
             return (
               <div key={i}>
@@ -226,20 +226,20 @@ export function DashboardView({ run, onApprove }: DashboardViewProps) {
   }));
   const ungroupedSteps = model.phases.length === 0 ? allSteps : [];
 
-  // Summary artifacts — any step with showInSummary: true artifacts
+  // Summary artifacts — any completed/failed step with showInSummary: true artifacts
+  // Shown both during active runs (for completed steps) and after terminal
   const summaryArtifacts: { step: StepRun; artifact: StepArtifact; data: unknown }[] = [];
-  if (isTerminal) {
-    for (const step of allSteps) {
-      const artifactsMap = step.spec?.artifacts as Record<string, StepArtifact> | undefined;
-      if (!artifactsMap) continue;
-      for (const artifact of Object.values(artifactsMap)) {
-        if (!artifact.showInSummary) continue;
-        const data = artifact.source.split('.').reduce<unknown>(
-          (acc, key) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined),
-          step.outputs,
-        );
-        summaryArtifacts.push({ step, artifact, data });
-      }
+  for (const step of allSteps) {
+    if (step.status !== 'success' && step.status !== 'failed') continue;
+    const artifactsMap = (step.spec?.spec?.artifacts ?? step.spec?.artifacts) as Record<string, StepArtifact> | undefined;
+    if (!artifactsMap) continue;
+    for (const artifact of Object.values(artifactsMap)) {
+      if (!artifact.showInSummary) continue;
+      const data = artifact.source.split('.').reduce<unknown>(
+        (acc, key) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined),
+        step.outputs,
+      );
+      summaryArtifacts.push({ step, artifact, data });
     }
   }
 
@@ -266,8 +266,8 @@ export function DashboardView({ run, onApprove }: DashboardViewProps) {
         />
       )}
 
-      {/* ── TERMINAL RUN: summary artifacts (showInSummary: true) ── */}
-      {isTerminal && summaryArtifacts.length > 0 && (() => {
+      {/* ── Summary artifacts (showInSummary: true) — shown as steps complete ── */}
+      {summaryArtifacts.length > 0 && (() => {
         const links = summaryArtifacts.filter(a => a.artifact.type === 'link');
         const rich = summaryArtifacts.filter(a => a.artifact.type !== 'link');
         return (
