@@ -1,6 +1,6 @@
 {
   "name": "@kb-labs/workflow-daemon",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Workflow daemon for KB Labs - standalone service for background job execution",
   "files": [
     "dist"
