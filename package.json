@@ -1,6 +1,6 @@
 {
   "name": "@kb-labs/workflow",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "description": "Workflow orchestration engine for KB Labs ecosystem",
   "type": "module",
   "author": {
