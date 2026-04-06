@@ -1,6 +1,6 @@
 {
   "name": "@kb-labs/workflow-daemon",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "description": "Workflow daemon for KB Labs - standalone service for background job execution",
   "files": [
     "dist"
@@ -61,5 +61,8 @@
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
+  },
+  "kb": {
+    "manifest": "./dist/manifest.js"
   }
 }
