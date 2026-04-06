@@ -1,7 +1,6 @@
 {
   "name": "@kb-labs/workflow-studio",
-  "version": "0.1.0",
-  "private": true,
+  "version": "1.5.0",
   "type": "module",
   "scripts": {
     "clean": "rimraf dist",
@@ -30,5 +29,8 @@
     "@ant-design/icons": "^5.4.0",
     "@tanstack/react-query": "^5.0.0",
     "react-router-dom": "^7.0.0"
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }
