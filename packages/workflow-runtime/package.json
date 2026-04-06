@@ -1,6 +1,6 @@
 {
   "name": "@kb-labs/workflow-runtime",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "type": "module",
   "description": "Runtime adapters and step executors for the KB Labs workflow engine.",
   "main": "./dist/index.js",
@@ -34,7 +34,7 @@
     "@kb-labs/plugin-contracts": "link:../../../../infra/kb-labs-plugin/packages/plugin-contracts",
     "@kb-labs/plugin-execution": "link:../../../../infra/kb-labs-plugin/packages/plugin-execution",
     "@kb-labs/workflow-artifacts": "workspace:*",
-    "@kb-labs/workflow-builtins": "workspace:^",
+    "@kb-labs/workflow-builtins": "workspace:*",
     "@kb-labs/workflow-constants": "workspace:*",
     "@kb-labs/workflow-contracts": "workspace:*",
     "execa": "^8.0.0",
