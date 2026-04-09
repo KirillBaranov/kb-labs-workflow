@@ -29,10 +29,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@kb-labs/core-registry": "link:../../../kb-labs-core/packages/core-registry",
-    "@kb-labs/core-platform": "link:../../../kb-labs-core/packages/core-platform",
-    "@kb-labs/plugin-contracts": "link:../../../../infra/kb-labs-plugin/packages/plugin-contracts",
-    "@kb-labs/plugin-execution": "link:../../../../infra/kb-labs-plugin/packages/plugin-execution",
+    "@kb-labs/core-registry": "^1.9.0",
+    "@kb-labs/core-platform": "^1.9.0",
+    "@kb-labs/plugin-contracts": "^1.4.0",
+    "@kb-labs/plugin-execution": "^1.4.0",
     "@kb-labs/workflow-artifacts": "workspace:*",
     "@kb-labs/workflow-builtins": "workspace:*",
     "@kb-labs/workflow-constants": "workspace:*",

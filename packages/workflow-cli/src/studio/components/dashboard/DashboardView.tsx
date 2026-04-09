@@ -237,7 +237,7 @@ export function DashboardView({ run, onApprove }: DashboardViewProps) {
       if (!artifact.showInSummary) continue;
       const data = artifact.source.split('.').reduce<unknown>(
         (acc, key) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined),
-        step.outputs,
+        step,
       );
       summaryArtifacts.push({ step, artifact, data });
     }

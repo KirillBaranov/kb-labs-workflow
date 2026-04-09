@@ -30,7 +30,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@kb-labs/plugin-contracts": "link:../../../../infra/kb-labs-plugin/packages/plugin-contracts",
+    "@kb-labs/plugin-contracts": "^1.4.0",
     "execa": "^8.0.0"
   },
   "devDependencies": {

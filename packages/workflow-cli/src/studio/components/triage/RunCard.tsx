@@ -71,15 +71,18 @@ export function RunCard({ run, onClick }: RunCardProps) {
 
   const currentStep = getCurrentStepInfo(run);
   const task = getTaskDescription(run);
-  const duration = run.startedAt
+  const startedAt = run.startedAt ?? run.jobs[0]?.startedAt ?? run.queuedAt ?? null;
+  const finishedAt = run.finishedAt ?? run.jobs[0]?.finishedAt ?? null;
+
+  const duration = startedAt
     ? formatDuration(
-        (run.finishedAt ? new Date(run.finishedAt).getTime() : Date.now()) -
-        new Date(run.startedAt).getTime(),
+        (finishedAt ? new Date(finishedAt).getTime() : Date.now()) -
+        new Date(startedAt).getTime(),
       )
     : null;
 
   const statusTag = STATUS_TAG[run.status];
-  const startedAgo = run.startedAt ? timeAgo(run.startedAt) : null;
+  const startedAgo = startedAt ? timeAgo(startedAt) : null;
 
   return (
     <div
