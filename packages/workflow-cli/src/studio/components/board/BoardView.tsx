@@ -7,7 +7,7 @@ import { UITypographyText } from '@kb-labs/sdk/studio';
 import type { WorkflowRun } from '@kb-labs/workflow-contracts';
 import { RunCard } from '../triage/RunCard';
 
-const COLUMNS: { status: WorkflowRun['status']; label: string; color: string }[] = [
+const COLUMNS: { status: WorkflowRun['status'] | 'waiting_approval'; label: string; color: string }[] = [
   { status: 'queued',           label: 'Queued',           color: 'var(--text-tertiary)' },
   { status: 'running',          label: 'Running',          color: 'var(--info)' },
   { status: 'waiting_approval', label: 'Waiting Approval', color: 'var(--warning)' },
@@ -53,13 +53,13 @@ export function BoardView({ runs, onRunClick }: BoardViewProps) {
               {col.label}
             </UITypographyText>
             <UITypographyText className="typo-caption text-tertiary">
-              {byStatus[col.status].length}
+              {byStatus[col.status]!.length}
             </UITypographyText>
           </div>
 
           {/* Cards */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {byStatus[col.status].map((run) => (
+            {byStatus[col.status]!.map((run) => (
               <RunCard key={run.id} run={run} onClick={() => onRunClick(run.id)} />
             ))}
           </div>

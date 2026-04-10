@@ -23,9 +23,10 @@ export interface ArtifactViewerProps {
 }
 
 class ArtifactErrorBoundary extends Component<{ children: ReactNode; label?: string }, { error: Error | null }> {
-  state = { error: null }
-  static getDerivedStateFromError(error: Error) { return { error } }
-  render() {
+  override state = { error: null as Error | null };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  static getDerivedStateFromError(error: Error): any { return { error }; }
+  override render() {
     if (this.state.error) {
       return (
         <span style={{ color: 'var(--text-tertiary)', fontSize: 12, fontStyle: 'italic' }}>
@@ -38,14 +39,14 @@ class ArtifactErrorBoundary extends Component<{ children: ReactNode; label?: str
 }
 
 function ArtifactViewerInner({ type, data, label, editable, onEdit }: ArtifactViewerProps) {
-  if (data == null) return null
-  if (type === 'link') return <LinkViewer data={data} label={label} />
-  if (type === 'markdown') return <MarkdownViewer data={data} editable={editable} onEdit={onEdit} />
-  if (type === 'issues') return <IssuesViewer data={data} />
-  if (type === 'table') return <TableViewer data={data} />
-  if (type === 'diff') return <DiffViewer data={data} />
-  if (type === 'log') return <LogViewer data={data} />
-  if (type === 'json') return <UIJsonViewer data={data} />
+  if (data == null) {return null}
+  if (type === 'link') {return <LinkViewer data={data} label={label} />}
+  if (type === 'markdown') {return <MarkdownViewer data={data} editable={editable} onEdit={onEdit} />}
+  if (type === 'issues') {return <IssuesViewer data={data} />}
+  if (type === 'table') {return <TableViewer data={data} />}
+  if (type === 'diff') {return <DiffViewer data={data} />}
+  if (type === 'log') {return <LogViewer data={data} />}
+  if (type === 'json') {return <UIJsonViewer data={data} />}
   return null
 }
 

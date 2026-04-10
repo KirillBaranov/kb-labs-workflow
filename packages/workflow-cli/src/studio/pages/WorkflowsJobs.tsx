@@ -12,7 +12,6 @@ import {
   UISelect,
   UIRow,
   UICol,
-  UIIcon,
 } from '@kb-labs/sdk/studio';
 import { useData } from '@kb-labs/sdk/studio';
 import type { JobStatusInfo, JobListFilter } from '@kb-labs/workflow-contracts';

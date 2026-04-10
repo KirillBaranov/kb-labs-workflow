@@ -194,21 +194,21 @@ async function shellHandler(
       stdoutBuf += chunk.toString();
       const lines = stdoutBuf.split('\n');
       stdoutBuf = lines.pop() ?? '';
-      for (const line of lines) emitLine('stdout', line);
+      for (const line of lines) {emitLine('stdout', line);}
     });
 
     proc.stderr?.on('data', (chunk: Buffer) => {
       stderrBuf += chunk.toString();
       const lines = stderrBuf.split('\n');
       stderrBuf = lines.pop() ?? '';
-      for (const line of lines) emitLine('stderr', line);
+      for (const line of lines) {emitLine('stderr', line);}
     });
 
     const result = await proc;
 
     // Flush remaining buffered content
-    if (stdoutBuf) emitLine('stdout', stdoutBuf);
-    if (stderrBuf) emitLine('stderr', stderrBuf);
+    if (stdoutBuf) {emitLine('stdout', stdoutBuf);}
+    if (stderrBuf) {emitLine('stderr', stderrBuf);}
 
     const output: ShellOutput = {
       stdout: result.stdout,

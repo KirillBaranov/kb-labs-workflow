@@ -221,7 +221,7 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
     raw.write(': connected\n\n');
 
     const sendEvent = (type: string, payload: unknown) => {
-      if (raw.writableEnded) return;
+      if (raw.writableEnded) {return;}
       raw.write(`event: workflow.event\n`);
       raw.write(`data: ${JSON.stringify({ type, runId, payload, timestamp: new Date().toISOString() })}\n\n`);
     };
@@ -239,14 +239,14 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
     const resetIdle = () => {
-      if (idleTimer) clearTimeout(idleTimer);
+      if (idleTimer) {clearTimeout(idleTimer);}
       idleTimer = setTimeout(() => {
         cleanup();
       }, IDLE_TIMEOUT_MS);
     };
 
     const keepAliveTimer = setInterval(() => {
-      if (raw.writableEnded) return;
+      if (raw.writableEnded) {return;}
       raw.write(': keep-alive\n\n');
     }, KEEP_ALIVE_MS);
 
@@ -260,9 +260,9 @@ export function registerWorkflowsAPI(options: RegisterWorkflowsAPIOptions): void
 
     const cleanup = () => {
       unsubscribe();
-      if (idleTimer) clearTimeout(idleTimer);
+      if (idleTimer) {clearTimeout(idleTimer);}
       clearInterval(keepAliveTimer);
-      if (!raw.writableEnded) raw.end();
+      if (!raw.writableEnded) {raw.end();}
     };
 
     resetIdle();

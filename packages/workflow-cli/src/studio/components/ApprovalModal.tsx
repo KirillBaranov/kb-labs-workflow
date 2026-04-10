@@ -37,7 +37,7 @@ export function ApprovalModal({
   const [comment, setComment] = useState('')
   const [pendingAction, setPendingAction] = useState<'approve' | 'reject' | null>(null)
 
-  const context = (step?.inputs ?? {}) as Record<string, unknown>
+  const context = (step?.spec?.with ?? {}) as Record<string, unknown>
   const title = typeof context.title === 'string' ? context.title : step?.name ?? 'Approval Required'
   const instructions = typeof context.instructions === 'string' ? context.instructions : null
   const contextData = typeof context.context === 'object' && context.context !== null

@@ -44,8 +44,7 @@ export default function WorkflowsDefinitions() {
 
   React.useEffect(() => {
     if (runWorkflowMutation.error) {
-      const workflowId = (runWorkflowMutation.variables as { workflowId?: string })?.workflowId ?? '';
-      messageApi.error(`Failed to start workflow "${workflowId}": ${(runWorkflowMutation.error as Error).message}`);
+      messageApi.error(`Failed to start workflow: ${(runWorkflowMutation.error as Error).message}`);
     }
   }, [runWorkflowMutation.error]);
 
@@ -202,7 +201,7 @@ export default function WorkflowsDefinitions() {
       <RunWorkflowModal
         open={!!runModalWorkflow}
         workflow={runModalWorkflow}
-        loading={runWorkflowMutation.isPending}
+        loading={runWorkflowMutation.isLoading}
         onClose={() => setRunModalWorkflow(null)}
         onRun={(workflowId, input) => {
           runWorkflowMutation.mutate({ workflowId, input });

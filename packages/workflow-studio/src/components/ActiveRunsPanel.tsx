@@ -7,6 +7,8 @@ import * as React from 'react';
 import { Link } from 'react-router-dom';
 import {
   UIList,
+  UIListItem,
+  UIListItemMeta,
   UIProgress,
   UISpace,
   UITypographyText,
@@ -90,7 +92,7 @@ export function ActiveRunsPanel() {
           <UIList
             dataSource={activeExecutions}
             renderItem={(execution) => (
-              <UIList.Item
+              <UIListItem
                 actions={[
                   <UIButton
                     key="cancel"
@@ -98,7 +100,7 @@ export function ActiveRunsPanel() {
                     size="small"
                     danger
                     icon={<UIIcon name="StopOutlined" />}
-                    loading={cancelMutation.isPending && cancelMutation.variables === execution.id}
+                    loading={cancelMutation.isLoading}
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -109,7 +111,7 @@ export function ActiveRunsPanel() {
                   </UIButton>,
                 ]}
               >
-                <UIList.Item.Meta
+                <UIListItemMeta
                   title={
                     <Link
                       to={`/workflows/runs/${execution.id}`}
@@ -152,7 +154,7 @@ export function ActiveRunsPanel() {
                     style={{ width: 120 }}
                   />
                 )}
-              </UIList.Item>
+              </UIListItem>
             )}
           />
         ) : (

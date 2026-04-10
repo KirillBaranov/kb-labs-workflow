@@ -17,7 +17,7 @@ import {
   UIButton,
 } from '@kb-labs/sdk/studio';
 import { useData, useMutateData } from '@kb-labs/sdk/studio';
-import type { DashboardStatsResponse } from '@kb-labs/workflow-contracts';
+import type { DashboardStatsResponse, WorkflowInfo } from '@kb-labs/workflow-contracts';
 import { ActiveRunsPanel } from '../components/ActiveRunsPanel';
 import { RunWorkflowModal } from '../components/RunWorkflowModal';
 import { UIPage, UIPageHeader } from '@kb-labs/sdk/studio';
@@ -63,7 +63,7 @@ export default function WorkflowsDashboard() {
   const [runModalOpen, setRunModalOpen] = React.useState(false);
 
   const { data: stats } = useData<DashboardStatsResponse>('/exec/api/v1/stats', { pollingMs: 3000 });
-  const { data: workflowsData } = useData<{ workflows: Array<{ id: string; name: string }> }>('/exec/api/v1/workflows', { params: { limit: 100 } });
+  const { data: workflowsData } = useData<{ workflows: WorkflowInfo[] }>('/exec/api/v1/workflows', { params: { limit: 100 } });
 
   const [runTargetId, setRunTargetId] = React.useState<string>('__none__');
   const runWorkflowMutation = useMutateData<
@@ -254,7 +254,7 @@ export default function WorkflowsDashboard() {
       <RunWorkflowModal
         open={runModalOpen}
         workflows={workflowsData?.workflows ?? []}
-        loading={runWorkflowMutation.isPending}
+        loading={runWorkflowMutation.isLoading}
         onClose={() => setRunModalOpen(false)}
         onRun={(workflowId, input) => {
           setRunTargetId(workflowId);

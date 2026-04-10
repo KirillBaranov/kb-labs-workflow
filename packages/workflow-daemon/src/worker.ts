@@ -230,7 +230,7 @@ export async function createWorkflowWorker(
         // - Step outputs are inputs for next steps
         // - Steps may have side effects that depend on order
         // - Workflow semantics require sequential execution
-        /* eslint-disable no-await-in-loop */
+         
         for (const step of job.steps) {
           if (step.status === 'success') {
             continue; // Skip already completed steps
@@ -539,7 +539,7 @@ export async function createWorkflowWorker(
             stepId: step.id,
           });
         }
-        /* eslint-enable no-await-in-loop */
+         
 
         // Mark job as completed
         await engine.markJobCompleted(run.id, job.id);
@@ -614,7 +614,7 @@ export async function createWorkflowWorker(
    */
   async function workerLoop(): Promise<void> {
     // IMPORTANT: This is a polling loop, must run sequentially
-    /* eslint-disable no-await-in-loop */
+     
     while (isRunning && !stopRequested) {
       try {
         const processed = await processJob();
@@ -641,7 +641,7 @@ export async function createWorkflowWorker(
         await sleep(5000); // Wait longer on error
       }
     }
-    /* eslint-enable no-await-in-loop */
+     
 
     logger.info('Worker loop stopped');
   }

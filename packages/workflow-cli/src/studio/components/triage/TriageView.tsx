@@ -8,7 +8,7 @@ import { UITypographyText } from '@kb-labs/sdk/studio';
 import type { WorkflowRun } from '@kb-labs/workflow-contracts';
 import { RunCard } from './RunCard';
 
-const GROUPS: { key: string; label: string; statuses: WorkflowRun['status'][]; color: string }[] = [
+const GROUPS: { key: string; label: string; statuses: string[]; color: string }[] = [
   {
     key: 'attention',
     label: 'Needs Attention',
@@ -75,11 +75,11 @@ export function TriageView({ runs, onRunClick }: TriageViewProps) {
               {group.label}
             </UITypographyText>
             <UITypographyText className="typo-caption text-tertiary">
-              ({grouped[group.key].length})
+              ({grouped[group.key]!.length})
             </UITypographyText>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
-            {grouped[group.key].map((run) => (
+            {grouped[group.key]!.map((run) => (
               <RunCard key={run.id} run={run} onClick={() => onRunClick(run.id)} />
             ))}
           </div>

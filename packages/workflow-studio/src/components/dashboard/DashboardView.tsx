@@ -181,7 +181,7 @@ export function DashboardView({ run, onApprove }: DashboardViewProps) {
   );
   const completedSteps = allSteps.filter((s) => s.status === 'success');
   const futureSteps = allSteps.filter(
-    (s) => s.status === 'queued' || s.status === 'pending',
+    (s) => s.status === 'queued' || (s.status as string) === 'pending',
   );
 
   return (

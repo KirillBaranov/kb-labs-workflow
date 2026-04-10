@@ -102,8 +102,8 @@ function mdToHtml(md: string): string {
   html = html.replace(/\n{2,}/g, '\n\n')
   html = html.split('\n\n').map(block => {
     const trimmed = block.trim()
-    if (!trimmed) return ''
-    if (/^(\x00CODE\d+\x00|<(h[1-6]|ul|ol|pre|hr|blockquote))/.test(trimmed)) return trimmed
+    if (!trimmed) {return ''}
+    if (/^(\x00CODE\d+\x00|<(h[1-6]|ul|ol|pre|hr|blockquote))/.test(trimmed)) {return trimmed}
     return `<p style="${S.p}">${trimmed.replace(/\n/g, '<br/>')}</p>`
   }).join('\n')
 

@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { UIJsonViewer } from '@kb-labs/sdk/studio'
 
 export interface ArtifactViewerProps {
-  type: 'markdown' | 'issues' | 'table' | 'diff' | 'log' | 'json'
+  type: 'markdown' | 'issues' | 'table' | 'diff' | 'log' | 'json' | 'link'
   data: unknown
   label?: string
   editable?: boolean
@@ -215,9 +215,9 @@ function DiffViewer({ data }: { data: unknown }) {
     }}>
       {lines.map((line, i) => {
         let color = '#c9d1d9'
-        if (line.startsWith('+') && !line.startsWith('+++')) color = '#3fb950'
-        else if (line.startsWith('-') && !line.startsWith('---')) color = '#f85149'
-        else if (line.startsWith('@@')) color = '#79c0ff'
+        if (line.startsWith('+') && !line.startsWith('+++')) {color = '#3fb950'}
+        else if (line.startsWith('-') && !line.startsWith('---')) {color = '#f85149'}
+        else if (line.startsWith('@@')) {color = '#79c0ff'}
         return <div key={i} style={{ color }}>{line}</div>
       })}
     </pre>
@@ -261,6 +261,9 @@ export function ArtifactViewer({ type, data, label, editable, onEdit }: Artifact
       {type === 'diff' && <DiffViewer data={data} />}
       {type === 'log' && <LogViewer data={data} />}
       {type === 'json' && <UIJsonViewer data={data} />}
+      {type === 'link' && typeof data === 'string' && (
+        <a href={data} target="_blank" rel="noreferrer" style={{ color: 'var(--link)' }}>{label ?? data}</a>
+      )}
     </div>
   )
 }

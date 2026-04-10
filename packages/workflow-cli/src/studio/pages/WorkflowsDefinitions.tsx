@@ -202,7 +202,7 @@ export default function WorkflowsDefinitions() {
       <RunWorkflowModal
         open={!!runModalWorkflow}
         workflow={runModalWorkflow}
-        loading={runWorkflowMutation.isPending}
+        loading={runWorkflowMutation.isLoading}
         onClose={() => setRunModalWorkflow(null)}
         onRun={(workflowId, input) => {
           setRunTargetId(workflowId);

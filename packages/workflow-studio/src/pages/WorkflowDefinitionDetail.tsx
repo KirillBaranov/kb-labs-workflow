@@ -142,7 +142,7 @@ export default function WorkflowDefinitionDetail() {
             size="small"
             danger
             icon={<UIIcon name="StopOutlined" />}
-            loading={cancelRunMutation.isPending && cancelRunMutation.variables === record.id}
+            loading={cancelRunMutation.isLoading}
             onClick={(e) => {
               e.stopPropagation();
               cancelRunMutation.mutate(record.id);
@@ -278,7 +278,7 @@ export default function WorkflowDefinitionDetail() {
       <RunWorkflowModal
         open={runModalOpen}
         workflow={workflowDef}
-        loading={runWorkflowMutation.isPending}
+        loading={runWorkflowMutation.isLoading}
         onClose={() => setRunModalOpen(false)}
         onRun={(_workflowId, input) => runWorkflowMutation.mutate(input)}
       />

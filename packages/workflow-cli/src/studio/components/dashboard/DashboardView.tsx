@@ -60,7 +60,7 @@ function HeroBlock({ step, onApprove }: HeroBlockProps) {
   const isWaiting = step.status === 'waiting_approval';
   const isRunning = step.status === 'running';
   // artifacts is Record<name, StepArtifact> in contracts
-  const artifactsMap = (step.spec?.spec?.artifacts ?? step.spec?.artifacts) as Record<string, StepArtifact> | undefined;
+  const artifactsMap = (step.spec?.artifacts) as Record<string, StepArtifact> | undefined;
   const artifacts = artifactsMap ? Object.values(artifactsMap) : [];
 
   return (
@@ -212,7 +212,7 @@ export function DashboardView({ run, onApprove }: DashboardViewProps) {
     : null;
   const completedSteps = allSteps.filter((s) => s.status === 'success');
   const failedSteps = allSteps.filter((s) => s.status === 'failed');
-  const futureSteps = allSteps.filter((s) => s.status === 'queued' || s.status === 'pending');
+  const futureSteps = allSteps.filter((s) => s.status === 'queued' || (s.status as string) === 'pending');
 
   // Total duration
   const totalMs = run.startedAt && run.finishedAt
@@ -230,11 +230,11 @@ export function DashboardView({ run, onApprove }: DashboardViewProps) {
   // Shown both during active runs (for completed steps) and after terminal
   const summaryArtifacts: { step: StepRun; artifact: StepArtifact; data: unknown }[] = [];
   for (const step of allSteps) {
-    if (step.status !== 'success' && step.status !== 'failed') continue;
-    const artifactsMap = (step.spec?.spec?.artifacts ?? step.spec?.artifacts) as Record<string, StepArtifact> | undefined;
-    if (!artifactsMap) continue;
+    if (step.status !== 'success' && step.status !== 'failed') {continue;}
+    const artifactsMap = (step.spec?.artifacts) as Record<string, StepArtifact> | undefined;
+    if (!artifactsMap) {continue;}
     for (const artifact of Object.values(artifactsMap)) {
-      if (!artifact.showInSummary) continue;
+      if (!artifact.showInSummary) {continue;}
       const data = artifact.source.split('.').reduce<unknown>(
         (acc, key) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined),
         step,

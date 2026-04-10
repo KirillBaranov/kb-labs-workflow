@@ -16,12 +16,12 @@ import nodePreset from '@kb-labs/devkit/eslint/node.js';
 export default [
   ...nodePreset,
 
-  // OPTIONAL: Add project-specific ignores only if needed
-  // DevKit preset already ignores: dist/, coverage/, node_modules/, *.d.ts, scripts/, etc.
-  // {
-  //   ignores: [
-  //     // Add ONLY project-specific patterns here
-  //     // Example: '**/*.generated.ts',
-  //   ]
-  // }
+  // e2e tests use setTimeout(() => reject(...)) inside Promise constructors — this is intentional
+  // and triggers no-promise-executor-return as a false positive
+  {
+    files: ['src/__tests__/**/*.ts'],
+    rules: {
+      'no-promise-executor-return': 'off',
+    },
+  },
 ];

@@ -53,7 +53,7 @@ interface PhaseProgressBarProps {
 }
 
 export function PhaseProgressBar({ phases, compact }: PhaseProgressBarProps) {
-  if (!phases.length) return null
+  if (!phases.length) {return null}
 
   return (
     <div style={{

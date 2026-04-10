@@ -8,7 +8,7 @@ export function TableViewer({ data }: { data: unknown }) {
     return <div className={styles.empty}>No data.</div>
   }
 
-  const columns = Object.keys(rows[0]).map(key => ({
+  const columns = Object.keys(rows[0] ?? {}).map(key => ({
     key,
     dataIndex: key,
     title: key,

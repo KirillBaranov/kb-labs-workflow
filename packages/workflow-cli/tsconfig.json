@@ -3,7 +3,9 @@
   "extends": "@kb-labs/devkit/tsconfig/node.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "jsx": "react-jsx",
+    "lib": ["ESNext", "DOM"]
   },
   "include": ["src"]
 }

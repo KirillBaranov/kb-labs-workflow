@@ -7,6 +7,8 @@ import * as React from 'react';
 import { Link } from 'react-router-dom';
 import {
   UIList,
+  UIListItem,
+  UIListItemMeta,
   UIProgress,
   UISpace,
   UITypographyText,
@@ -108,12 +110,12 @@ export function ActiveRunsPanel() {
           <UIList
             dataSource={activeExecutions}
             renderItem={(execution) => (
-              <UIList.Item
+              <UIListItem
                 actions={[
                   <CancelRunButton key="cancel" runId={execution.id} onSuccess={() => refetch()} />,
                 ]}
               >
-                <UIList.Item.Meta
+                <UIListItemMeta
                   title={
                     <Link
                       to={`/p/workflows/runs/${execution.id}`}
@@ -156,7 +158,7 @@ export function ActiveRunsPanel() {
                     style={{ width: 120 }}
                   />
                 )}
-              </UIList.Item>
+              </UIListItem>
             )}
           />
         ) : (

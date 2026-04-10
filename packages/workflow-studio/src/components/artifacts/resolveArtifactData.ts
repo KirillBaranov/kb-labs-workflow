@@ -12,7 +12,7 @@ export function resolveArtifactData(
   source: string,
   outputs: Record<string, unknown> | undefined,
 ): unknown {
-  if (!outputs) return undefined
+  if (!outputs) {return undefined}
 
   // Strip leading "outputs." prefix if present
   const path = source.startsWith('outputs.') ? source.slice(8) : source
@@ -21,7 +21,7 @@ export function resolveArtifactData(
   let current: unknown = outputs
 
   for (const part of parts) {
-    if (current == null || typeof current !== 'object') return undefined
+    if (current == null || typeof current !== 'object') {return undefined}
     current = (current as Record<string, unknown>)[part]
   }
 

@@ -8,7 +8,7 @@ import { useMemo, useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   UIButton, UITypographyText,
-  UITitle, UIAlert, UIList, UIAccordion, UITabs, UIJsonViewer,
+  UITitle, UIAlert, UIList, UIListItem, UIAccordion, UITabs, UIJsonViewer,
 } from '@kb-labs/sdk/studio'
 import type { UIAccordionItem, UITabItem } from '@kb-labs/sdk/studio'
 import { useData, useMutateData, useSSE } from '@kb-labs/sdk/studio'
@@ -156,7 +156,7 @@ function buildLogGroups(events: WorkflowLogEvent[], run: WorkflowRun): JobLogGro
       stepId: s.id,
       stepName: s.name,
       status: s.status,
-      command: s.command,
+      command: (s as any).command,
       events: [],
       outputs: s.outputs ?? undefined,
       error: s.error,
@@ -444,7 +444,6 @@ function JobStepLog({ events, run, onApprove }: JobStepLogProps) {
               items={stepItems}
               defaultActiveKey={defaultStepKeys}
               size="small"
-              variant="borderless"
               ghost
               style={{ background: 'transparent' }}
             />
@@ -476,7 +475,7 @@ export default function WorkflowRunDetail() {
   const run = runData?.run ?? (runData as unknown as WorkflowRun | undefined)
   const cancelMutation = useMutateData<void, void>(`/exec/api/v1/runs/${runId ?? '__none__'}/cancel`)
   const resolveApproval = useMutateData<
-    { jobId: string; stepId: string; action: string; comment?: string },
+    { runId: string; jobId: string; stepId: string; action: string; comment?: string },
     unknown
   >(`/exec/api/v1/runs/${runId ?? '__none__'}/approvals/resolve`)
   const isRunActive = run != null && !['success', 'failed', 'cancelled', 'skipped'].includes(run.status)
@@ -543,8 +542,8 @@ export default function WorkflowRunDetail() {
             {run && !isTerminal && (
               <UIButton
                 danger
-                loading={cancelMutation.isPending}
-                onClick={() => runId && cancelMutation.mutate(runId)}
+                loading={cancelMutation.isLoading}
+                onClick={() => runId && cancelMutation.mutate()}
               >
                 Cancel Run
               </UIButton>
@@ -658,10 +657,10 @@ export default function WorkflowRunDetail() {
                 value,
               }))}
               renderItem={({ key, value }) => (
-                <UIList.Item>
+                <UIListItem>
                   <Text strong>{key}</Text>
                   <span style={{ marginLeft: 8 }}>{String(value ?? '-')}</span>
-                </UIList.Item>
+                </UIListItem>
               )}
             />
           ) : (
@@ -687,7 +686,7 @@ export default function WorkflowRunDetail() {
         runId={runId ?? ''}
         onClose={() => setApprovalStep(null)}
         onResolve={handleApprovalResolve}
-        isLoading={resolveApproval.isPending}
+        isLoading={resolveApproval.isLoading}
         error={resolveApproval.error instanceof Error ? resolveApproval.error : null}
       />
     </UIPage>

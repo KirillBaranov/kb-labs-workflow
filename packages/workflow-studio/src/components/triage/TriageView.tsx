@@ -8,7 +8,7 @@ import { UITypographyText } from '@kb-labs/sdk/studio';
 import type { WorkflowRun } from '@kb-labs/workflow-contracts';
 import { RunCard } from './RunCard';
 
-const GROUPS: { key: string; label: string; statuses: WorkflowRun['status'][]; color: string }[] = [
+const GROUPS: { key: string; label: string; statuses: string[]; color: string }[] = [
   {
     key: 'attention',
     label: 'Needs Attention',

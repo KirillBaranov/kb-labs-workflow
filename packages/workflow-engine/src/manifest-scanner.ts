@@ -18,7 +18,6 @@
 
 import type { IEntityRegistry } from '@kb-labs/core-registry';
 import type {
-  ManifestV3,
   WorkflowHandlerDecl,
   JobHandlerDecl,
   CronDecl,

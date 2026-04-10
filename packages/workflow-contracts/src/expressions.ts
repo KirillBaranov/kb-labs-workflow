@@ -174,12 +174,12 @@ export function resolveValue(path: string, context: ExpressionContext): unknown 
       const stepId = match[1]!
       const outputKey = match[2]!
       const outputs = context.steps[stepId]?.outputs
-      if (outputs === undefined) return ''
+      if (outputs === undefined) {return ''}
       // Navigate nested path (e.g. "result.passed" → outputs.result.passed)
       const parts = outputKey.split('.')
       let value: unknown = outputs
       for (const part of parts) {
-        if (value === undefined || value === null || typeof value !== 'object') return ''
+        if (value === undefined || value === null || typeof value !== 'object') {return ''}
         value = (value as Record<string, unknown>)[part]
       }
       return value !== undefined ? value : ''

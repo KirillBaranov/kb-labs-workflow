@@ -14,11 +14,8 @@ import { createServer } from './server.js';
 import { createRegistry } from '@kb-labs/core-registry';
 import { findRepoRoot } from '@kb-labs/core-sys';
 import { randomUUID } from 'node:crypto';
-import { promises as fs } from 'node:fs';
-import * as path from 'node:path';
 import type { WorkflowWorker } from './worker.js';
 import type { FastifyInstance } from 'fastify';
-import type { ILogger } from '@kb-labs/core-platform';
 
 // Singleton instances for cleanup
 let workerInstance: WorkflowWorker | null = null;
@@ -76,7 +73,7 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
 
   bootstrapLogger.info('Workflow daemon starting', { repoRoot });
 
-  const createWorkflowLogger = (service: string, operation: string, bindings?: Record<string, unknown>): ILogger =>
+  const createWorkflowLogger = (service: string, operation: string, bindings?: Record<string, unknown>) =>
     createCorrelatedLogger(platform.logger, {
       serviceId: 'workflow',
       logsSource: 'workflow',
@@ -90,18 +87,9 @@ export async function bootstrap(cwd: string = process.cwd()): Promise<void> {
   bootstrapLogger.info('Loading plugin registry snapshot');
 
   const cliApi = await createRegistry({
-    registry: {
-      root: repoRoot,
-    },
+    root: repoRoot,
     cache: {
-      inMemory: true,
       ttlMs: 10 * 60 * 1000, // 10 minutes
-    },
-    logger: {
-      level: 'info',
-    },
-    snapshot: {
-      mode: 'consumer',
     },
   });
 

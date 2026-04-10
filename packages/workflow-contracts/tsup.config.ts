@@ -6,5 +6,6 @@ export default defineConfig({
   tsconfig: "tsconfig.build.json", // Use build-specific tsconfig without paths
   entry: {
     index: 'src/index.ts',
+    'rest-api': 'src/rest-api.ts',
   },
 })

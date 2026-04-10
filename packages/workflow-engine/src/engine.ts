@@ -107,7 +107,7 @@ export class WorkflowEngine {
   ): Unsubscribe {
     return this.options.events.subscribe(WORKFLOW_REDIS_CHANNEL, async (raw: unknown) => {
       const event = raw as WorkflowEvent
-      if (event.runId === runId) handler(event)
+      if (event.runId === runId) {handler(event)}
     })
   }
 
@@ -489,7 +489,7 @@ export class WorkflowEngine {
         message: error.message,
         stack: error.stack,
       }
-      if (outputs) draft.outputs = outputs
+      if (outputs) {draft.outputs = outputs}
     })
 
     this.logger.debug('Step failed', { runId, jobId, stepId, error: error.message })

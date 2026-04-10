@@ -80,7 +80,7 @@ export default function WorkflowDefinitionDetail() {
     { enabled: !!workflowId },
   );
 
-  const { data: runsData, isLoading: runsLoading } = useData<{ runs: WorkflowRunInfo[] }>(
+  const { data: runsData, isLoading: runsLoading, refetch } = useData<{ runs: WorkflowRunInfo[] }>(
     workflowId ? `/exec/api/v1/workflows/${encodeURIComponent(workflowId)}/runs` : '/exec/api/v1/workflows/__none__/runs',
     { enabled: !!workflowId, pollingMs: 5000, params: { limit: 50 } },
   );
@@ -281,7 +281,7 @@ export default function WorkflowDefinitionDetail() {
       <RunWorkflowModal
         open={runModalOpen}
         workflow={workflowDef}
-        loading={runWorkflowMutation.isPending}
+        loading={runWorkflowMutation.isLoading}
         onClose={() => setRunModalOpen(false)}
         onRun={(_workflowId, input) => runWorkflowMutation.mutate(input)}
       />

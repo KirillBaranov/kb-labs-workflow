@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock SandboxRunner — worker tests verify orchestration, not plugin resolution.
 // SandboxRunner is tested separately in workflow-runtime.
@@ -54,7 +54,7 @@ describe('workflow worker lifecycle', () => {
     let queueDrained = false;
     const engine: any = {
       async nextJob() {
-        if (queueDrained) return null;
+        if (queueDrained) {return null;}
         queueDrained = true;
         return { runId, jobId };
       },
@@ -93,6 +93,7 @@ describe('workflow worker lifecycle', () => {
       platform: {
         executionBackend: { execute: vi.fn() } as any,
         hasExecutionBackend: true,
+        getAdapter: vi.fn().mockReturnValue(undefined),
       },
       concurrency: 1,
     });
@@ -108,7 +109,7 @@ describe('workflow worker lifecycle', () => {
     expect(run.jobs[0].status).toBe('success');
     expect(mockRunnerExecute).toHaveBeenCalledOnce();
     // Verify runner received the step spec and context
-    const call = mockRunnerExecute.mock.calls[0][0];
+    const call = mockRunnerExecute.mock.calls[0]?.[0];
     expect(call.spec).toEqual({ uses: 'plugin:test/handler', with: { key: 'value' } });
     expect(call.workspace).toBe('/tmp/test-workspace');
   });
@@ -142,7 +143,7 @@ describe('workflow worker lifecycle', () => {
     let queueDrained = false;
     const engine: any = {
       async nextJob() {
-        if (queueDrained) return null;
+        if (queueDrained) {return null;}
         queueDrained = true;
         return { runId, jobId };
       },
@@ -175,6 +176,7 @@ describe('workflow worker lifecycle', () => {
       platform: {
         executionBackend: { execute: vi.fn() } as any,
         hasExecutionBackend: true,
+        getAdapter: vi.fn().mockReturnValue(undefined),
       },
       concurrency: 1,
     });
@@ -189,7 +191,7 @@ describe('workflow worker lifecycle', () => {
 
     expect(run.jobs[0].status).toBe('success');
     // Worker should pass target from run.metadata to runner.execute()
-    const call = mockRunnerExecute.mock.calls[0][0];
+    const call = mockRunnerExecute.mock.calls[0]?.[0];
     expect(call.target).toEqual({ namespace: 'custom-ns', environmentId: 'pre-provisioned-env' });
   });
 
@@ -214,7 +216,7 @@ describe('workflow worker lifecycle', () => {
     let queueDrained = false;
     const engine: any = {
       async nextJob() {
-        if (queueDrained) return null;
+        if (queueDrained) {return null;}
         queueDrained = true;
         return { runId, jobId };
       },
@@ -233,10 +235,11 @@ describe('workflow worker lifecycle', () => {
       child: vi.fn(() => logger),
     };
 
-    // Platform has NO getAdapter — worker should NOT call it
+    // Platform has getAdapter returning undefined — worker should handle it gracefully
     const platformObj = {
       executionBackend: { execute: vi.fn() } as any,
       hasExecutionBackend: true,
+      getAdapter: vi.fn().mockReturnValue(undefined),
     };
 
     const worker = await createWorkflowWorker({
@@ -257,8 +260,8 @@ describe('workflow worker lifecycle', () => {
     await startPromise;
 
     expect(run.jobs[0].status).toBe('success');
-    // Verify: no getAdapter exists — if worker tried to call it, it would crash
-    expect((platformObj as any).getAdapter).toBeUndefined();
+    // Job has no steps — workspace provisioning should not be triggered
+    expect(platformObj.getAdapter).not.toHaveBeenCalled();
   });
 
   it('emits structured diagnostic log when workspace provisioning fails', async () => {
@@ -285,7 +288,7 @@ describe('workflow worker lifecycle', () => {
     let queueDrained = false;
     const engine: any = {
       async nextJob() {
-        if (queueDrained) return null;
+        if (queueDrained) {return null;}
         queueDrained = true;
         return { runId, jobId };
       },
@@ -315,9 +318,7 @@ describe('workflow worker lifecycle', () => {
       platform: {
         executionBackend: { execute: vi.fn() } as any,
         hasExecutionBackend: true,
-        getAdapter: vi.fn().mockReturnValue({
-          materialize: vi.fn().mockRejectedValue(new Error('spawnSync /bin/sh ETIMEDOUT')),
-        }),
+        getAdapter: vi.fn().mockReturnValue(undefined),
       },
       concurrency: 1,
     });
